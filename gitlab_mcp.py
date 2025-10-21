@@ -426,8 +426,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project(ctx: Context) -> dict:
+async def current_project() -> dict:
     """Get current project information"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -454,8 +455,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merge_requests(ctx: Context) -> dict | list:
+async def current_project_merge_requests() -> dict | list:
     """Get open merge requests for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -481,8 +483,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_all_merge_requests(ctx: Context) -> dict | list:
+async def current_project_all_merge_requests() -> dict | list:
     """Get all merge requests for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -508,8 +511,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merged_merge_requests(ctx: Context) -> dict | list:
+async def current_project_merged_merge_requests() -> dict | list:
     """Get merged merge requests for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -535,8 +539,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_closed_merge_requests(ctx: Context) -> dict | list:
+async def current_project_closed_merge_requests() -> dict | list:
     """Get closed merge requests for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -563,8 +568,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_pipelines(ctx: Context) -> dict | list:
+async def current_project_pipelines() -> dict | list:
     """Get recent pipelines for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -591,8 +597,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_status(ctx: Context) -> dict:
+async def current_project_status() -> dict:
     """Get quick status overview for current project"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -655,8 +662,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_discussions(ctx: Context) -> dict | list:
+async def current_branch_mr_discussions() -> dict | list:
     """Get discussions for the MR associated with the current branch"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -722,8 +730,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_overview(ctx: Context) -> dict:
+async def current_branch_mr_overview() -> dict:
     """Get complete overview of the MR for the current branch"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -855,8 +864,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_changes(ctx: Context) -> dict:
+async def current_branch_mr_changes() -> dict:
     """Get changes/diff for the MR on the current branch"""
+    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
