@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabClient:
-    def __init__(self, token: str | None = None, base_url: str | None = None):
+    def __init__(self, token: str | None = None, base_url: str | None = None, validate: bool = True):
+        """Initialize GitLab API client
+
+        Args:
+            token: GitLab personal access token
+            base_url: GitLab instance URL
+            validate: Whether to validate configuration and test connectivity on init
+        """
         self.token = token or os.getenv("GITLAB_TOKEN")
         self.base_url = (base_url or os.getenv("GITLAB_BASE_URL") or os.getenv("GITLAB_URL") or "https://gitlab.com").rstrip("/")
 
@@ -42,22 +49,25 @@ class GitLabClient:
             timeout=30.0
         )
 
-        # Test connectivity on initialization
-        try:
-            version_info = self.get("/version")
-            logger.info(f"Connected to GitLab {version_info.get('version', 'unknown')} at {self.base_url}")
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                logger.error("GitLab authentication failed - check your GITLAB_TOKEN")
-                raise ValueError("Invalid GITLAB_TOKEN - authentication failed") from e
-            logger.error(f"GitLab API returned error: {e.response.status_code}")
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"Failed to connect to GitLab at {self.base_url}: {e}")
-            raise ValueError(f"Cannot connect to GitLab at {self.base_url}. Check your GITLAB_URL.") from e
-        except Exception as e:
-            logger.exception(f"Unexpected error during GitLab client initialization: {e}")
-            raise
+        # Test connectivity on initialization if validation is enabled
+        if validate:
+            try:
+                version_info = self.get("/version")
+                logger.info(f"Connected to GitLab {version_info.get('version', 'unknown')} at {self.base_url}")
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    logger.error("GitLab authentication failed - check your GITLAB_TOKEN")
+                    raise ValueError("Invalid GITLAB_TOKEN - authentication failed") from e
+                logger.error(f"GitLab API returned error: {e.response.status_code}")
+                raise
+            except httpx.RequestError as e:
+                logger.error(f"Failed to connect to GitLab at {self.base_url}: {e}")
+                raise ValueError(f"Cannot connect to GitLab at {self.base_url}. Check your GITLAB_URL.") from e
+            except Exception as e:
+                logger.exception(f"Unexpected error during GitLab client initialization: {e}")
+                raise
+        else:
+            logger.info(f"GitLab client initialized for {self.base_url} (validation skipped)")
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         """GET request to GitLab API with error handling"""
