@@ -261,51 +261,45 @@ def parse_gitlab_remote(git_root: str, base_url: str) -> str | None:
         return None
 
 
-async def detect_current_repo(ctx: Context, gitlab_client: GitLabClient) -> dict | None:
-    """Detect current git repo using Context roots and fetch project info"""
+def detect_current_repo_from_cwd(gitlab_client: GitLabClient) -> dict | None:
+    """Detect current git repo from current working directory
+
+    Note: FastMCP 1.0 doesn't provide easy access to MCP workspace roots,
+    so we fall back to using the current working directory.
+    """
     try:
-        roots = await ctx.list_roots()
-        if not roots:
+        import os
+        cwd = os.getcwd()
+        logger.debug(f"Looking for git repository starting from: {cwd}")
+
+        git_root = find_git_root(cwd)
+        if not git_root:
+            logger.debug("No git repository found in current directory or parents")
             return None
 
-        # Try each root to find a git repository
-        for root in roots:
-            root_uri = str(root.uri) if hasattr(root, 'uri') else str(root)
+        project_path = parse_gitlab_remote(git_root, gitlab_client.base_url)
+        if not project_path:
+            logger.debug("Git repository found but no matching GitLab remote")
+            return None
 
-            # Extract path from file:// URI or use directly
-            if root_uri.startswith("file://"):
-                root_path = root_uri[7:]  # Remove file://
-            else:
-                root_path = root_uri
+        # Fetch project info from GitLab API
+        try:
+            project = gitlab_client.get_project(project_path)
+            logger.info(f"Detected GitLab project: {project.get('path_with_namespace')}")
+            return {
+                "git_root": git_root,
+                "project_path": project_path,
+                "project": project
+            }
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error fetching project '{project_path}': {e}")
+            return None
 
-            git_root = find_git_root(root_path)
-            if not git_root:
-                continue
-
-            project_path = parse_gitlab_remote(git_root, gitlab_client.base_url)
-            if not project_path:
-                continue
-
-            # Fetch project info from GitLab API
-            try:
-                project = gitlab_client.get_project(project_path)
-                logger.info(f"Detected GitLab project: {project.get('path_with_namespace')}")
-                return {
-                    "git_root": git_root,
-                    "project_path": project_path,
-                    "project": project
-                }
-            except httpx.HTTPStatusError as e:
-                logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e.response.status_code}")
-                continue
-            except Exception as e:
-                logger.warning(f"Error fetching project '{project_path}': {e}")
-                continue
-
-        logger.debug("No GitLab repository detected in workspace roots")
-        return None
     except Exception as e:
-        logger.exception(f"Error in detect_current_repo: {e}")
+        logger.exception(f"Error in detect_current_repo_from_cwd: {e}")
         return None
 
 
@@ -426,10 +420,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project() -> dict:
+def current_project() -> dict:
     """Get current project information"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -455,10 +448,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merge_requests() -> dict | list:
+def current_project_merge_requests() -> dict | list:
     """Get open merge requests for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -483,10 +475,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_all_merge_requests() -> dict | list:
+def current_project_all_merge_requests() -> dict | list:
     """Get all merge requests for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -511,10 +502,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merged_merge_requests() -> dict | list:
+def current_project_merged_merge_requests() -> dict | list:
     """Get merged merge requests for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -539,10 +529,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_closed_merge_requests() -> dict | list:
+def current_project_closed_merge_requests() -> dict | list:
     """Get closed merge requests for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -568,10 +557,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_pipelines() -> dict | list:
+def current_project_pipelines() -> dict | list:
     """Get recent pipelines for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -597,10 +585,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_status() -> dict:
+def current_project_status() -> dict:
     """Get quick status overview for current project"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -662,10 +649,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_discussions() -> dict | list:
+def current_branch_mr_discussions() -> dict | list:
     """Get discussions for the MR associated with the current branch"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -730,10 +716,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_overview() -> dict:
+def current_branch_mr_overview() -> dict:
     """Get complete overview of the MR for the current branch"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -864,10 +849,9 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_changes() -> dict:
+def current_branch_mr_changes() -> dict:
     """Get changes/diff for the MR on the current branch"""
-    ctx = mcp.get_context()
-    repo_info = await detect_current_repo(ctx, gitlab_client)
+    repo_info = detect_current_repo_from_cwd(gitlab_client)
 
     if not repo_info:
         return {
@@ -903,7 +887,7 @@ async def current_branch_mr_changes() -> dict:
     description="Quick reference for available GitLab MCP resources and common queries",
     mime_type="application/json"
 )
-async def gitlab_help() -> dict:
+def gitlab_help() -> dict:
     """Get help information about available GitLab resources"""
     return {
         "server": "gitlab-mcp",
@@ -987,25 +971,25 @@ async def gitlab_help() -> dict:
     description="List of all GitLab projects you have access to",
     mime_type="application/json"
 )
-async def all_projects() -> list:
+def all_projects() -> list:
     """List all projects"""
     return gitlab_client.get_projects()
 
 
 @mcp.resource("gitlab://projects/{project_id}")
-async def project_by_id(project_id: str) -> dict:
+def project_by_id(project_id: str) -> dict:
     """Get specific project by ID"""
     return gitlab_client.get_project(project_id)
 
 
 @mcp.resource("gitlab://projects/{project_id}/merge-requests/")
-async def project_merge_requests(project_id: str) -> list:
+def project_merge_requests(project_id: str) -> list:
     """Get merge requests for a project"""
     return gitlab_client.get_merge_requests(project_id, state="opened")
 
 
 @mcp.resource("gitlab://projects/{project_id}/merge-requests/{mr_iid}")
-async def project_merge_request(project_id: str, mr_iid: str) -> dict:
+def project_merge_request(project_id: str, mr_iid: str) -> dict:
     """Get specific merge request with latest pipeline and jobs"""
     mr = gitlab_client.get_merge_request(project_id, int(mr_iid))
     pipelines = gitlab_client.get_mr_pipelines(project_id, int(mr_iid))
@@ -1023,7 +1007,7 @@ async def project_merge_request(project_id: str, mr_iid: str) -> dict:
 
 
 @mcp.resource("gitlab://projects/{project_id}/merge-requests/{mr_iid}/discussions")
-async def project_merge_request_discussions(project_id: str, mr_iid: str) -> dict:
+def project_merge_request_discussions(project_id: str, mr_iid: str) -> dict:
     """Get discussions for a specific merge request"""
     discussions = gitlab_client.get_mr_discussions(project_id, int(mr_iid))
 
@@ -1043,13 +1027,13 @@ async def project_merge_request_discussions(project_id: str, mr_iid: str) -> dic
 
 
 @mcp.resource("gitlab://projects/{project_id}/pipelines/")
-async def project_pipelines(project_id: str) -> list:
+def project_pipelines(project_id: str) -> list:
     """Get pipelines for a project"""
     return gitlab_client.get_pipelines(project_id)
 
 
 @mcp.resource("gitlab://projects/{project_id}/pipelines/{pipeline_id}")
-async def project_pipeline(project_id: str, pipeline_id: str) -> dict:
+def project_pipeline(project_id: str, pipeline_id: str) -> dict:
     """Get specific pipeline"""
     return gitlab_client.get_pipeline(project_id, int(pipeline_id))
 
