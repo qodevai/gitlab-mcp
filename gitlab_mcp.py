@@ -265,6 +265,9 @@ def parse_gitlab_remote(git_root: str, base_url: str) -> str | None:
 async def get_workspace_roots_from_client(ctx: Context) -> list[types.Root] | None:
     """Request workspace roots from MCP client
 
+    FastMCP 2.0 provides ctx.list_roots() method that handles all the
+    complexity of requesting roots from the client.
+
     Args:
         ctx: FastMCP context object
 
@@ -272,35 +275,20 @@ async def get_workspace_roots_from_client(ctx: Context) -> list[types.Root] | No
         List of Root objects if client supports roots capability, None otherwise
     """
     try:
-        if not hasattr(ctx, 'request_context') or not ctx.request_context:
-            logger.debug("No request context available")
+        # FastMCP 2.0 has built-in list_roots() method
+        logger.debug("Requesting roots from MCP client via ctx.list_roots()")
+        roots = await ctx.list_roots()
+
+        if roots:
+            logger.info(f"Received {len(roots)} workspace roots from MCP client")
+            return roots
+        else:
+            logger.debug("Client returned empty roots list")
             return None
-
-        session = ctx.request_context.session
-
-        # Check if client supports roots capability
-        if not hasattr(session, '_client_params') or not session._client_params:
-            logger.debug("Client params not available")
-            return None
-
-        if not session._client_params.capabilities or not session._client_params.capabilities.roots:
-            logger.debug("Client doesn't support roots capability")
-            return None
-
-        # Request roots from client
-        logger.debug("Requesting roots from MCP client")
-        result = await session.send_request(
-            types.ListRootsRequest(method='roots/list', params=None)
-        )
-
-        if result and hasattr(result, 'roots'):
-            logger.info(f"Received {len(result.roots)} workspace roots from MCP client")
-            return result.roots
-
-        return None
 
     except Exception as e:
         logger.warning(f"Failed to get roots from MCP client: {e}")
+        logger.debug(f"This is normal if the client doesn't support roots capability")
         return None
 
 
@@ -503,9 +491,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project() -> dict:
+async def current_project(ctx: Context) -> dict:
     """Get current project information"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -532,9 +519,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merge_requests() -> dict | list:
+async def current_project_merge_requests(ctx: Context) -> dict | list:
     """Get open merge requests for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -560,9 +546,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_all_merge_requests() -> dict | list:
+async def current_project_all_merge_requests(ctx: Context) -> dict | list:
     """Get all merge requests for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -588,9 +573,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_merged_merge_requests() -> dict | list:
+async def current_project_merged_merge_requests(ctx: Context) -> dict | list:
     """Get merged merge requests for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -616,9 +600,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_closed_merge_requests() -> dict | list:
+async def current_project_closed_merge_requests(ctx: Context) -> dict | list:
     """Get closed merge requests for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -645,9 +628,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_pipelines() -> dict | list:
+async def current_project_pipelines(ctx: Context) -> dict | list:
     """Get recent pipelines for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -674,9 +656,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_project_status() -> dict:
+async def current_project_status(ctx: Context) -> dict:
     """Get quick status overview for current project"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -739,9 +720,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_discussions() -> dict | list:
+async def current_branch_mr_discussions(ctx: Context) -> dict | list:
     """Get discussions for the MR associated with the current branch"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -807,9 +787,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_overview() -> dict:
+async def current_branch_mr_overview(ctx: Context) -> dict:
     """Get complete overview of the MR for the current branch"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
@@ -941,9 +920,8 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-async def current_branch_mr_changes() -> dict:
+async def current_branch_mr_changes(ctx: Context) -> dict:
     """Get changes/diff for the MR on the current branch"""
-    ctx = mcp.get_context()
     repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
