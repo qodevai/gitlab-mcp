@@ -65,9 +65,33 @@ Create a `.env` file in the project root:
 GITLAB_TOKEN=glpat-YOUR-TOKEN-HERE
 GITLAB_URL=https://gitlab.com
 
-# Optional
+# Optional - Repository path override
+# The server automatically detects your workspace from MCP client roots.
+# Set this only if you need to override automatic detection.
+# GITLAB_REPO_PATH=/path/to/your/project
+
+# Optional - Logging level
 LOG_LEVEL=INFO
 ```
+
+### Workspace Detection
+
+The server automatically detects which GitLab repository you're working on using this priority order:
+
+1. **MCP Workspace Roots** (Automatic - Recommended)
+   - When using Claude Code or Claude Desktop, the server requests workspace roots from the client
+   - This is the proper MCP implementation and works automatically
+   - No configuration needed!
+
+2. **Environment Variable** (Manual Override)
+   - Set `GITLAB_REPO_PATH` in `.env` to force a specific repository
+   - Useful for testing or if your MCP client doesn't support roots
+
+3. **Current Working Directory** (Fallback)
+   - If neither of the above work, uses the directory where the server is running
+   - Less reliable but better than nothing
+
+**Recommendation**: Just use Claude Code or Claude Desktop - they provide workspace roots automatically!
 
 ### Generating a GitLab Personal Access Token
 
@@ -236,6 +260,36 @@ The server implements robust error handling:
 1. Create an MR for your branch on GitLab
 2. Ensure the MR is in "opened" state
 3. Check you're on the correct branch: `git branch`
+
+### "Not in a GitLab repository or repository not found"
+
+**Cause**: Server cannot detect your GitLab repository
+
+**Solution**:
+
+1. **Check workspace detection**:
+   ```bash
+   # Set LOG_LEVEL=DEBUG in .env to see detection details
+   # The logs will show which method is being used
+   ```
+
+2. **If using Claude Code/Desktop** (should work automatically):
+   - Ensure you have a folder open in the IDE
+   - Check that the folder contains a git repository with a GitLab remote
+   - Verify the remote matches your `GITLAB_URL` in `.env`
+
+3. **Manual override** (if automatic detection fails):
+   ```env
+   # Add to .env
+   GITLAB_REPO_PATH=/full/path/to/your/gitlab/project
+   ```
+
+4. **Verify GitLab remote**:
+   ```bash
+   cd /path/to/your/project
+   git remote -v
+   # Should show a URL matching your GITLAB_URL
+   ```
 
 ### Enabling Debug Logging
 

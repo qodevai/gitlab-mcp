@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from fastmcp import FastMCP, Context
 from dotenv import load_dotenv
+from mcp import types
 
 # Load environment variables from .env file
 load_dotenv()
@@ -261,45 +262,127 @@ def parse_gitlab_remote(git_root: str, base_url: str) -> str | None:
         return None
 
 
-def detect_current_repo_from_cwd(gitlab_client: GitLabClient) -> dict | None:
-    """Detect current git repo from current working directory
+async def get_workspace_roots_from_client(ctx: Context) -> list[types.Root] | None:
+    """Request workspace roots from MCP client
 
-    Note: FastMCP 1.0 doesn't provide easy access to MCP workspace roots,
-    so we fall back to using the current working directory.
+    Args:
+        ctx: FastMCP context object
+
+    Returns:
+        List of Root objects if client supports roots capability, None otherwise
     """
     try:
-        import os
-        cwd = os.getcwd()
-        logger.debug(f"Looking for git repository starting from: {cwd}")
-
-        git_root = find_git_root(cwd)
-        if not git_root:
-            logger.debug("No git repository found in current directory or parents")
+        if not hasattr(ctx, 'request_context') or not ctx.request_context:
+            logger.debug("No request context available")
             return None
 
-        project_path = parse_gitlab_remote(git_root, gitlab_client.base_url)
-        if not project_path:
-            logger.debug("Git repository found but no matching GitLab remote")
+        session = ctx.request_context.session
+
+        # Check if client supports roots capability
+        if not hasattr(session, '_client_params') or not session._client_params:
+            logger.debug("Client params not available")
             return None
 
-        # Fetch project info from GitLab API
-        try:
-            project = gitlab_client.get_project(project_path)
-            logger.info(f"Detected GitLab project: {project.get('path_with_namespace')}")
-            return {
-                "git_root": git_root,
-                "project_path": project_path,
-                "project": project
-            }
-        except httpx.HTTPStatusError as e:
-            logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e.response.status_code}")
+        if not session._client_params.capabilities or not session._client_params.capabilities.roots:
+            logger.debug("Client doesn't support roots capability")
             return None
-        except Exception as e:
-            logger.warning(f"Error fetching project '{project_path}': {e}")
-            return None
+
+        # Request roots from client
+        logger.debug("Requesting roots from MCP client")
+        result = await session.send_request(
+            types.ListRootsRequest(method='roots/list', params=None)
+        )
+
+        if result and hasattr(result, 'roots'):
+            logger.info(f"Received {len(result.roots)} workspace roots from MCP client")
+            return result.roots
+
+        return None
 
     except Exception as e:
-        logger.exception(f"Error in detect_current_repo_from_cwd: {e}")
+        logger.warning(f"Failed to get roots from MCP client: {e}")
+        return None
+
+
+async def detect_current_repo(ctx: Context, gitlab_client: GitLabClient) -> dict | None:
+    """Detect current git repo from MCP roots, env var, or CWD
+
+    Detection priority:
+    1. MCP workspace roots from client (proper MCP implementation)
+    2. GITLAB_REPO_PATH environment variable (manual override)
+    3. Current working directory (fallback)
+
+    Args:
+        ctx: FastMCP context object
+        gitlab_client: GitLab API client
+
+    Returns:
+        Dict with git_root, project_path, and project info, or None if not found
+    """
+    try:
+        search_paths = []
+
+        # Try to get roots from MCP client
+        roots = await get_workspace_roots_from_client(ctx)
+        if roots:
+            for root in roots:
+                root_uri = str(root.uri)
+                # Extract path from file:// URI
+                if root_uri.startswith("file://"):
+                    path = root_uri[7:]  # Remove file://
+                else:
+                    path = root_uri
+                search_paths.append(path)
+                logger.debug(f"Added workspace root: {path}")
+
+        # Fallback to env var
+        if not search_paths:
+            repo_path = os.getenv('GITLAB_REPO_PATH')
+            if repo_path:
+                logger.info(f"Using GITLAB_REPO_PATH from environment: {repo_path}")
+                search_paths.append(repo_path)
+
+        # Final fallback to CWD
+        if not search_paths:
+            cwd = os.getcwd()
+            logger.debug(f"No roots from client or env var, using CWD: {cwd}")
+            search_paths.append(cwd)
+
+        # Try each path to find a GitLab repository
+        for path in search_paths:
+            logger.debug(f"Searching for git repository in: {path}")
+
+            git_root = find_git_root(path)
+            if not git_root:
+                logger.debug(f"No git repository found at: {path}")
+                continue
+
+            project_path = parse_gitlab_remote(git_root, gitlab_client.base_url)
+            if not project_path:
+                logger.debug(f"Git repository found but no matching GitLab remote at: {git_root}")
+                continue
+
+            # Fetch project info from GitLab API
+            try:
+                project = gitlab_client.get_project(project_path)
+                logger.info(f"Detected GitLab project: {project.get('path_with_namespace')} from {git_root}")
+                return {
+                    "git_root": git_root,
+                    "project_path": project_path,
+                    "project": project
+                }
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e.response.status_code}")
+                continue
+            except Exception as e:
+                logger.debug(f"Error fetching project '{project_path}': {e}")
+                continue
+
+        logger.debug("No GitLab repository found in any search path")
+        return None
+
+    except Exception as e:
+        logger.exception(f"Error in detect_current_repo: {e}")
         return None
 
 
@@ -420,9 +503,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project() -> dict:
+async def current_project() -> dict:
     """Get current project information"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -448,9 +532,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_merge_requests() -> dict | list:
+async def current_project_merge_requests() -> dict | list:
     """Get open merge requests for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -475,9 +560,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_all_merge_requests() -> dict | list:
+async def current_project_all_merge_requests() -> dict | list:
     """Get all merge requests for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -502,9 +588,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_merged_merge_requests() -> dict | list:
+async def current_project_merged_merge_requests() -> dict | list:
     """Get merged merge requests for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -529,9 +616,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_closed_merge_requests() -> dict | list:
+async def current_project_closed_merge_requests() -> dict | list:
     """Get closed merge requests for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -557,9 +645,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_pipelines() -> dict | list:
+async def current_project_pipelines() -> dict | list:
     """Get recent pipelines for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -585,9 +674,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_project_status() -> dict:
+async def current_project_status() -> dict:
     """Get quick status overview for current project"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -649,9 +739,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_branch_mr_discussions() -> dict | list:
+async def current_branch_mr_discussions() -> dict | list:
     """Get discussions for the MR associated with the current branch"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -716,9 +807,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_branch_mr_overview() -> dict:
+async def current_branch_mr_overview() -> dict:
     """Get complete overview of the MR for the current branch"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
@@ -849,9 +941,10 @@ Use this when users ask:
 """,
     mime_type="application/json"
 )
-def current_branch_mr_changes() -> dict:
+async def current_branch_mr_changes() -> dict:
     """Get changes/diff for the MR on the current branch"""
-    repo_info = detect_current_repo_from_cwd(gitlab_client)
+    ctx = mcp.get_context()
+    repo_info = await detect_current_repo(ctx, gitlab_client)
 
     if not repo_info:
         return {
