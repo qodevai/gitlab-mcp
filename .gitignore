@@ -20,6 +20,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
 # Virtual environments
 .venv/
 venv/
