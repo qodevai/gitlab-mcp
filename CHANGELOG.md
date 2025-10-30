@@ -5,6 +5,30 @@ All notable changes to the GitLab MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Release Management** - Full support for creating and managing GitLab releases
+  - `get_releases()` method in GitLabClient - List all releases for a project (sorted by release date, newest first)
+  - `get_release()` method in GitLabClient - Get specific release by tag name
+  - `create_release()` method in GitLabClient - Create new releases with tags, descriptions, milestones, and asset links
+  - `update_release()` method in GitLabClient - Update existing releases (name, description, milestones, release date)
+  - `delete_release()` method in GitLabClient - Delete releases (preserves associated tags)
+  - `gitlab://projects/{project_id}/releases/` MCP resource - List all releases (supports `project_id="current"`)
+  - `gitlab://projects/{project_id}/releases/{tag_name}` MCP resource - Get specific release by tag
+  - `create_release()` MCP tool - Create releases with support for `project_id="current"`
+  - Auto-detection of `ref` from current branch if not provided
+  - Comprehensive error handling with helpful suggestions for common issues (tag doesn't exist, permissions, etc.)
+  - Full support for release options: name, description, ref, milestones, release date, asset links
+
+- **Create Merge Request Tool** - Create new merge requests programmatically
+  - `create_merge_request()` method in GitLabClient
+  - MCP tool with support for `project_id="current"`
+  - Auto-detection of source branch from current git branch if not provided
+  - Defaults target branch to "main"
+  - Full support for MR options: description, assignees, reviewers, labels, squash, auto-remove source branch
+  - Comprehensive error handling with helpful suggestions for common issues (duplicate MR, invalid branches, etc.)
+
 ## [1.0.0] - 2025-01-21
 
 ### Added - Production Release

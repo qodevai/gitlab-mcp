@@ -4,11 +4,16 @@ A production-ready Model Context Protocol (MCP) server that provides GitLab inte
 
 ## Features
 
+- **Create Releases** - Create new releases with tags, descriptions, milestones, and asset links
+- **Release Management** - List all releases and view specific release details
+- **Create Merge Requests** - Create new MRs directly from your current branch or any branch
 - **Current Branch MR Overview** - Complete details of the MR for your current branch
 - **MR Discussions** - View and track discussion threads on merge requests
 - **Code Changes** - See diffs and changed files in MRs
 - **Pipeline Status** - Monitor CI/CD pipeline health
 - **Approval Tracking** - Check who has approved and who needs to approve
+- **Comment on MRs** - Leave comments and participate in discussions
+- **Merge MRs** - Merge approved MRs with customizable options
 - **Project Information** - Access project metadata and settings
 - **Commit History** - View commit details for merge requests
 
@@ -130,10 +135,16 @@ Add to your Claude Code MCP configuration:
 ```
 
 Then use natural language queries:
+- "Create a release for version 1.0.0"
+- "What releases exist in my project?"
+- "Show me the details of release v1.0.0"
+- "Create a merge request for my current branch"
 - "What's the status of my MR?"
 - "Any unresolved discussions on my merge request?"
 - "What files changed in the current MR?"
 - "Show me the pipeline status"
+- "Comment on my MR saying the changes look good"
+- "Merge my current MR"
 
 ### With Claude Desktop
 
@@ -172,13 +183,14 @@ This opens a web interface at http://localhost:5173 where you can:
 
 | URI | Description |
 |-----|-------------|
-| `gitlab://current-project/current-branch-mr/` | Complete MR overview (recommended) |
-| `gitlab://current-project/current-branch-mr-discussions/` | Discussions on current branch MR |
-| `gitlab://current-project/current-branch-mr-changes/` | Code changes/diff for current MR |
-| `gitlab://current-project/merge-requests/` | Open merge requests |
-| `gitlab://current-project/pipelines/` | Recent pipelines (last 20) |
-| `gitlab://current-project/status/` | Quick project status |
-| `gitlab://current-project/` | Project information |
+| `gitlab://projects/current/merge-requests/current` | Complete MR overview (recommended) |
+| `gitlab://projects/current/merge-requests/current/discussions` | Discussions on current branch MR |
+| `gitlab://projects/current/merge-requests/current/changes` | Code changes/diff for current MR |
+| `gitlab://projects/current/merge-requests/` | Open merge requests |
+| `gitlab://projects/current/pipelines/` | Recent pipelines (last 20) |
+| `gitlab://projects/current/releases/` | All releases in current project |
+| `gitlab://projects/current/releases/{tag_name}` | Specific release by tag name |
+| `gitlab://projects/current/` | Project information |
 
 ### Global Resources
 
@@ -189,6 +201,8 @@ This opens a web interface at http://localhost:5173 where you can:
 | `gitlab://projects/{id}/merge-requests/` | Project merge requests |
 | `gitlab://projects/{id}/merge-requests/{iid}` | Specific MR with pipeline |
 | `gitlab://projects/{id}/merge-requests/{iid}/discussions` | MR discussions |
+| `gitlab://projects/{id}/releases/` | All releases in specific project |
+| `gitlab://projects/{id}/releases/{tag_name}` | Specific release by tag |
 | `gitlab://help/` | Resource documentation |
 
 ## Architecture
