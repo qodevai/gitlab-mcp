@@ -304,6 +304,33 @@ class GitLabClient:
             logger.exception(f"Unexpected error for GET job {job_id} artifact {artifact_path}: {e}")
             raise
 
+    def enrich_jobs_with_failure_logs(self, project_id: str, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Enrich failed jobs with last 10 lines of their logs
+
+        Args:
+            project_id: Project ID or path
+            jobs: List of job objects
+
+        Returns:
+            Jobs list with failure_log_tail added to failed jobs
+        """
+        enriched_jobs = []
+        for job in jobs:
+            job_copy = job.copy()
+            if job.get("status") == "failed":
+                try:
+                    full_log = self.get_job_log(project_id, job["id"])
+                    log_lines = full_log.split("\n")
+                    # Get last 10 non-empty lines
+                    last_lines = [line for line in log_lines if line.strip()][-10:]
+                    job_copy["failure_log_tail"] = "\n".join(last_lines)
+                    job_copy["log_note"] = f"Showing last 10 lines. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+                except Exception as e:
+                    logger.warning(f"Failed to fetch log for job {job['id']}: {e}")
+                    job_copy["log_note"] = f"Failed to fetch log. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+            enriched_jobs.append(job_copy)
+        return enriched_jobs
+
     def get_mr_discussions(self, project_id: str, mr_iid: int) -> list[dict[str, Any]]:
         """Get all discussions (comments/threads) for a merge request"""
         encoded_id = self._encode_project_id(project_id)
@@ -2246,6 +2273,9 @@ async def project_merge_request_pipeline_jobs(ctx: Context, project_id: str, mr_
     latest_pipeline = pipelines[0]
     jobs = gitlab_client.get_pipeline_jobs(resolved_project_id, latest_pipeline["id"])
 
+    # Enrich failed jobs with last 10 lines of logs
+    enriched_jobs = gitlab_client.enrich_jobs_with_failure_logs(resolved_project_id, jobs)
+
     return {
         "pipeline": {
             "id": latest_pipeline["id"],
@@ -2254,7 +2284,7 @@ async def project_merge_request_pipeline_jobs(ctx: Context, project_id: str, mr_
             "web_url": latest_pipeline.get("web_url"),
             "created_at": latest_pipeline.get("created_at"),
         },
-        "jobs": jobs,
+        "jobs": enriched_jobs,
         "summary": {
             "total_jobs": len(jobs),
             "failed_jobs": len([j for j in jobs if j.get("status") == "failed"]),
@@ -2398,9 +2428,13 @@ async def project_pipeline_jobs(ctx: Context, project_id: str, pipeline_id: str)
     if not resolved_id:
         return create_repo_not_found_error(gitlab_client.base_url)
     jobs = gitlab_client.get_pipeline_jobs(resolved_id, int(pipeline_id))
+
+    # Enrich failed jobs with last 10 lines of logs
+    enriched_jobs = gitlab_client.enrich_jobs_with_failure_logs(resolved_id, jobs)
+
     return {
         "pipeline_id": int(pipeline_id),
-        "jobs": jobs,
+        "jobs": enriched_jobs,
         "summary": {
             "total_jobs": len(jobs),
             "failed_jobs": len([j for j in jobs if j.get("status") == "failed"]),
