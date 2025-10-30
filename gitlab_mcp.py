@@ -244,6 +244,44 @@ class GitLabClient:
         encoded_id = self._encode_project_id(project_id)
         return self.get(f"/projects/{encoded_id}/merge_requests/{mr_iid}/approvals")
 
+    def get_releases(self, project_id: str, order_by: str = "released_at", sort: str = "desc") -> list[dict[str, Any]]:
+        """Get all releases for a project
+
+        Args:
+            project_id: Project ID or path
+            order_by: Order by "released_at" or "created_at" (default: "released_at")
+            sort: Sort direction "asc" or "desc" (default: "desc")
+
+        Returns:
+            List of releases
+
+        Raises:
+            httpx.HTTPStatusError: If API request fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+        params = {"order_by": order_by, "sort": sort}
+        return self.get_paginated(f"/projects/{encoded_id}/releases", params=params)
+
+    def get_release(self, project_id: str, tag_name: str) -> dict[str, Any]:
+        """Get a specific release by tag name
+
+        Args:
+            project_id: Project ID or path
+            tag_name: Tag name of the release
+
+        Returns:
+            Release data
+
+        Raises:
+            httpx.HTTPStatusError: If release not found or API request fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+        # Tag name needs to be URL encoded
+        from urllib.parse import quote
+
+        encoded_tag = quote(tag_name, safe="")
+        return self.get(f"/projects/{encoded_id}/releases/{encoded_tag}")
+
     def create_mr_note(self, project_id: str, mr_iid: int, body: str) -> dict[str, Any]:
         """Create a comment/note on a merge request
 
@@ -280,6 +318,82 @@ class GitLabClient:
             raise
         except Exception as e:
             logger.exception(f"Unexpected error while creating note on MR !{mr_iid}: {e}")
+            raise
+
+    def create_merge_request(
+        self,
+        project_id: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        description: str | None = None,
+        assignee_ids: list[int] | None = None,
+        reviewer_ids: list[int] | None = None,
+        labels: str | None = None,
+        remove_source_branch: bool = True,
+        squash: bool | None = None,
+        allow_collaboration: bool = False,
+    ) -> dict[str, Any]:
+        """Create a new merge request
+
+        Args:
+            project_id: Project ID or path
+            source_branch: Source branch name
+            target_branch: Target branch name
+            title: MR title
+            description: MR description/body (optional, supports Markdown)
+            assignee_ids: List of user IDs to assign (optional)
+            reviewer_ids: List of user IDs to review (optional)
+            labels: Comma-separated label names (optional)
+            remove_source_branch: Remove source branch after merge (default: True)
+            squash: Squash commits on merge (default: None - use project settings)
+            allow_collaboration: Allow commits from members with merge access (default: False)
+
+        Returns:
+            Created MR data
+
+        Raises:
+            httpx.HTTPStatusError: If MR creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "title": title,
+            "remove_source_branch": remove_source_branch,
+            "allow_collaboration": allow_collaboration,
+        }
+
+        if description is not None:
+            data["description"] = description
+        if assignee_ids is not None:
+            data["assignee_ids"] = assignee_ids
+        if reviewer_ids is not None:
+            data["reviewer_ids"] = reviewer_ids
+        if labels is not None:
+            data["labels"] = labels
+        if squash is not None:
+            data["squash"] = squash
+
+        try:
+            logger.info(f"Creating MR from {source_branch} to {target_branch} in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/merge_requests",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully created MR !{response.json().get('iid')} in project {project_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to create MR in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while creating MR in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while creating MR in project {project_id}: {e}")
             raise
 
     def merge_mr(
@@ -589,6 +703,168 @@ class GitLabClient:
                 description=description,
             )
             return variable, "created"
+
+    def create_release(
+        self,
+        project_id: str,
+        tag_name: str,
+        name: str | None = None,
+        description: str | None = None,
+        ref: str | None = None,
+        milestones: list[str] | None = None,
+        released_at: str | None = None,
+        assets_links: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new release
+
+        Args:
+            project_id: Project ID or path
+            tag_name: Tag name for the release (required)
+            name: Release title (optional, defaults to tag_name)
+            description: Release description/notes (optional, supports Markdown)
+            ref: Commit SHA, branch, or existing tag (required only if tag_name doesn't exist yet)
+            milestones: List of milestone titles to associate (optional)
+            released_at: ISO 8601 datetime for release (optional, defaults to current time)
+            assets_links: List of asset link dicts with 'name', 'url', and optional 'direct_asset_path' (optional)
+
+        Returns:
+            Created release data
+
+        Raises:
+            httpx.HTTPStatusError: If release creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {"tag_name": tag_name}
+
+        if name is not None:
+            data["name"] = name
+        if description is not None:
+            data["description"] = description
+        if ref is not None:
+            data["ref"] = ref
+        if milestones is not None:
+            data["milestones"] = milestones
+        if released_at is not None:
+            data["released_at"] = released_at
+        if assets_links is not None:
+            data["assets"] = {"links": assets_links}
+
+        try:
+            logger.info(f"Creating release '{tag_name}' in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/releases",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully created release '{tag_name}' in project {project_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to create release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while creating release '{tag_name}' in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while creating release '{tag_name}' in project {project_id}: {e}")
+            raise
+
+    def update_release(
+        self,
+        project_id: str,
+        tag_name: str,
+        name: str | None = None,
+        description: str | None = None,
+        milestones: list[str] | None = None,
+        released_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Update an existing release
+
+        Args:
+            project_id: Project ID or path
+            tag_name: Tag name of the release to update
+            name: New release title (optional)
+            description: New release description/notes (optional, supports Markdown)
+            milestones: New list of milestone titles (optional)
+            released_at: New release datetime in ISO 8601 format (optional)
+
+        Returns:
+            Updated release data
+
+        Raises:
+            httpx.HTTPStatusError: If release update fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        # Tag name needs to be URL encoded
+        from urllib.parse import quote
+
+        encoded_tag = quote(tag_name, safe="")
+
+        data: dict[str, Any] = {}
+
+        if name is not None:
+            data["name"] = name
+        if description is not None:
+            data["description"] = description
+        if milestones is not None:
+            data["milestones"] = milestones
+        if released_at is not None:
+            data["released_at"] = released_at
+
+        try:
+            logger.info(f"Updating release '{tag_name}' in project {project_id}")
+            response = self.client.put(
+                f"/projects/{encoded_id}/releases/{encoded_tag}",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully updated release '{tag_name}' in project {project_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to update release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while updating release '{tag_name}' in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while updating release '{tag_name}' in project {project_id}: {e}")
+            raise
+
+    def delete_release(self, project_id: str, tag_name: str) -> None:
+        """Delete a release (note: does not delete the associated tag)
+
+        Args:
+            project_id: Project ID or path
+            tag_name: Tag name of the release to delete
+
+        Raises:
+            httpx.HTTPStatusError: If release deletion fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        # Tag name needs to be URL encoded
+        from urllib.parse import quote
+
+        encoded_tag = quote(tag_name, safe="")
+
+        try:
+            logger.info(f"Deleting release '{tag_name}' in project {project_id}")
+            response = self.client.delete(f"/projects/{encoded_id}/releases/{encoded_tag}")
+            response.raise_for_status()
+            logger.info(f"Successfully deleted release '{tag_name}' in project {project_id} (tag preserved)")
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to delete release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while deleting release '{tag_name}' in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while deleting release '{tag_name}' in project {project_id}: {e}")
+            raise
 
 
 # Helper functions
@@ -933,13 +1209,19 @@ Current Repo/Branch (use project_id="current" and mr_iid="current"):
 - gitlab://projects/current/merge-requests/current/pipeline-jobs - Just pipeline jobs
 - gitlab://projects/current/merge-requests/ - All open MRs in current project
 - gitlab://projects/current/pipelines/ - Pipelines for current project
+- gitlab://projects/current/releases/ - All releases in current project
+- gitlab://projects/current/releases/{tag_name} - Specific release by tag
 
 Specific Project/MR (use numeric ID or URL-encoded path):
 - gitlab://projects/qodev%2Fhandbook/merge-requests/20 - Comprehensive MR overview
 - gitlab://projects/123/merge-requests/20/discussions - Granular access to discussions only
 - gitlab://projects/qodev%2Fhandbook/merge-requests/20/changes - Granular access to changes only
+- gitlab://projects/qodev%2Fhandbook/releases/ - All releases in specific project
+- gitlab://projects/123/releases/v1.0.0 - Specific release in specific project
 
 TOOLS - Perform actions (all support "current"):
+- create_release(project_id, tag_name, name, description, ref, ...) - Create a new release (supports project_id="current", auto-detects ref from current branch)
+- create_merge_request(project_id, title, source_branch, target_branch, ...) - Create a new MR (supports project_id="current", auto-detects source_branch)
 - comment_on_merge_request(project_id, mr_iid, comment) - Leave a comment (supports project_id="current", mr_iid="current")
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
@@ -947,10 +1229,15 @@ TOOLS - Perform actions (all support "current"):
 Examples:
 - "What's the status of my MR?" → gitlab://projects/current/merge-requests/current
 - "Show me MR !20 in qodev/handbook" → gitlab://projects/qodev%2Fhandbook/merge-requests/20
+- "Create MR for current branch" → create_merge_request("current", "Add new feature")
+- "Create MR from feature to dev" → create_merge_request("current", "Bug fix", source_branch="feature", target_branch="dev")
 - "Comment on my MR saying 'LGTM'" → comment_on_merge_request("current", "current", "LGTM")
 - "Merge MR !20 in project qodev/handbook" → merge_merge_request("qodev/handbook", 20)
 - "What discussions are on my MR?" → gitlab://projects/current/merge-requests/current/discussions (token-efficient!)
 - "Set API_KEY in current project" → set_project_ci_variable("current", "API_KEY", "secret123")
+- "What releases exist?" → gitlab://projects/current/releases/
+- "Show me release v1.0.0" → gitlab://projects/current/releases/v1.0.0
+- "Create a release" → create_release("current", "v1.0.0", name="Version 1.0", description="Initial release")
 
 Token Efficiency:
 - Use comprehensive resource for full overview: gitlab://projects/{id}/merge-requests/{iid}
@@ -1067,8 +1354,40 @@ def gitlab_help() -> dict[str, Any]:
                 "description": "List all accessible GitLab projects",
                 "queries": ["Show all my projects"],
             },
+            "project_releases": {
+                "uri": "gitlab://projects/{project_id}/releases/",
+                "examples": ["gitlab://projects/current/releases/"],
+                "description": "All releases for a project (newest first)",
+                "queries": ["What releases exist?", "Show me all releases"],
+            },
+            "specific_release": {
+                "uri": "gitlab://projects/{project_id}/releases/{tag_name}",
+                "examples": ["gitlab://projects/current/releases/v1.0.0"],
+                "description": "Details of a specific release by tag name",
+                "queries": ["Show me release v1.0.0", "What's in the latest release?"],
+            },
         },
         "tools": {
+            "create_release": {
+                "signature": "create_release(project_id, tag_name, name, description, ref, ...)",
+                "supports_current": True,
+                "description": "Create a new release. Auto-detects ref from current branch if not provided.",
+                "examples": [
+                    "create_release('current', 'v1.0.0', name='Release 1.0.0', description='Initial release')",
+                    "create_release('current', 'v1.1.0', ref='main', description='Bug fixes and improvements')",
+                    "create_release('qodev/handbook', 'v2.0.0', name='Version 2.0', description='Major update')",
+                ],
+            },
+            "create_merge_request": {
+                "signature": "create_merge_request(project_id, title, source_branch, target_branch, ...)",
+                "supports_current": True,
+                "description": "Create a new merge request. Auto-detects source_branch if not provided.",
+                "examples": [
+                    "create_merge_request('current', 'Add new feature')",
+                    "create_merge_request('current', 'Bug fix', source_branch='feature', target_branch='dev')",
+                    "create_merge_request('qodev/handbook', 'Update docs', source_branch='docs-update')",
+                ],
+            },
             "comment_on_merge_request": {
                 "signature": "comment_on_merge_request(project_id, mr_iid, comment)",
                 "supports_current": True,
@@ -1100,10 +1419,14 @@ def gitlab_help() -> dict[str, Any]:
             "What's the status of my MR? → gitlab://projects/current/merge-requests/current",
             "What discussions are on my MR? → gitlab://projects/current/merge-requests/current/discussions",
             "Show me MR !20 in qodev/handbook → gitlab://projects/qodev%2Fhandbook/merge-requests/20",
+            "Create MR for current branch → create_merge_request('current', 'Title')",
             "Comment on my MR → comment_on_merge_request('current', 'current', 'message')",
             "Merge my MR → merge_merge_request('current', 'current')",
             "Any open MRs? → gitlab://projects/current/merge-requests/",
             "Pipeline status? → gitlab://projects/current/pipelines/",
+            "What releases exist? → gitlab://projects/current/releases/",
+            "Show me release v1.0.0 → gitlab://projects/current/releases/v1.0.0",
+            "Create a release → create_release('current', 'v1.0.0', name='Version 1.0', description='Release notes')",
         ],
     }
 
@@ -1402,6 +1725,33 @@ async def project_job_log(ctx: Context, project_id: str, job_id: str) -> str | d
     return gitlab_client.get_job_log(resolved_id, int(job_id))
 
 
+@mcp.resource("gitlab://projects/{project_id}/releases/")
+async def project_releases(ctx: Context, project_id: str) -> list[dict[str, Any]] | dict[str, Any]:
+    """Get all releases for a project (supports project_id="current")
+
+    Returns releases sorted by released_at in descending order (newest first).
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+    return gitlab_client.get_releases(resolved_id)
+
+
+@mcp.resource("gitlab://projects/{project_id}/releases/{tag_name}")
+async def project_release(ctx: Context, project_id: str, tag_name: str) -> dict[str, Any]:
+    """Get a specific release by tag name (supports project_id="current")"""
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    try:
+        return gitlab_client.get_release(resolved_id, tag_name)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {"error": f"Release with tag '{tag_name}' not found in project {project_id}"}
+        return {"error": f"Failed to fetch release '{tag_name}': {e.response.text[:200]}"}
+
+
 # Tools
 @mcp.tool()
 async def comment_on_merge_request(ctx: Context, project_id: str, mr_iid: str | int, comment: str) -> dict[str, Any]:
@@ -1680,6 +2030,280 @@ async def set_project_ci_variable(
             "success": False,
             "error": f"Unexpected error while setting CI/CD variable '{key}' in project {project_id}: {str(e)}",
             "project_id": project_id,
+        }
+
+
+@mcp.tool()
+async def create_merge_request(
+    ctx: Context,
+    project_id: str,
+    title: str,
+    source_branch: str | None = None,
+    target_branch: str = "main",
+    description: str | None = None,
+    assignee_ids: list[int] | None = None,
+    reviewer_ids: list[int] | None = None,
+    labels: str | None = None,
+    remove_source_branch: bool = True,
+    squash: bool | None = None,
+    allow_collaboration: bool = False,
+) -> dict[str, Any]:
+    """Create a new merge request in a project
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        title: MR title (required)
+        source_branch: Source branch name (defaults to current branch if None)
+        target_branch: Target branch name (default: "main")
+        description: MR description/body (optional, supports Markdown)
+        assignee_ids: List of user IDs to assign (optional)
+        reviewer_ids: List of user IDs to review (optional)
+        labels: Comma-separated label names (optional, e.g., "bug,urgent")
+        remove_source_branch: Remove source branch after merge (default: True)
+        squash: Squash commits on merge (None = use project settings, True = squash, False = don't squash)
+        allow_collaboration: Allow commits from members with merge access (default: False)
+
+    Returns:
+        Result with success status and created MR details including web URL
+
+    Raises:
+        Error if MR creation fails
+    """
+    resolved_project_id, repo_info = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    # Auto-detect source branch if not provided
+    if source_branch is None:
+        if not repo_info:
+            # Need to detect repo to get branch
+            repo_info = await detect_current_repo(ctx, gitlab_client)
+            if not repo_info:
+                return {
+                    "success": False,
+                    "error": "Could not detect current branch. Please specify source_branch parameter.",
+                }
+
+        git_root = repo_info["git_root"]
+        source_branch = get_current_branch(git_root)
+
+        if not source_branch:
+            return {
+                "success": False,
+                "error": "Could not detect current branch. Please specify source_branch parameter.",
+            }
+
+        logger.info(f"Auto-detected source branch: {source_branch}")
+
+    try:
+        result = gitlab_client.create_merge_request(
+            project_id=resolved_project_id,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            title=title,
+            description=description,
+            assignee_ids=assignee_ids,
+            reviewer_ids=reviewer_ids,
+            labels=labels,
+            remove_source_branch=remove_source_branch,
+            squash=squash,
+            allow_collaboration=allow_collaboration,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully created MR !{result.get('iid')} in project {project_id}",
+            "merge_request": {
+                "iid": result.get("iid"),
+                "title": result.get("title"),
+                "description": result.get("description"),
+                "source_branch": result.get("source_branch"),
+                "target_branch": result.get("target_branch"),
+                "state": result.get("state"),
+                "web_url": result.get("web_url"),
+                "author": result.get("author"),
+            },
+            "project_id": project_id,
+        }
+    except httpx.HTTPStatusError as e:
+        import json
+
+        # Parse GitLab error response
+        try:
+            error_json = json.loads(e.response.text)
+            error_message = error_json.get("message", "Unknown error")
+        except (json.JSONDecodeError, AttributeError):
+            error_message = e.response.text if e.response.text else str(e)
+
+        helpful_message = f"Failed to create MR in project {project_id}: {error_message}"
+        suggestions = []
+
+        # Add context-specific suggestions
+        if e.response.status_code == 409:
+            # Conflict - usually means MR already exists
+            helpful_message = f"Cannot create MR: A merge request already exists for branch '{source_branch}'"
+            suggestions.append("Check existing open MRs for this branch")
+        elif e.response.status_code == 400:
+            # Bad request - usually validation error
+            suggestions.append("Check that source and target branches exist")
+            suggestions.append("Verify that source branch differs from target branch")
+        elif e.response.status_code == 404:
+            # Not found - project or branch doesn't exist
+            helpful_message = f"Cannot create MR: Project or branch not found"
+            suggestions.append(f"Verify project '{project_id}' exists")
+            suggestions.append(f"Verify branches '{source_branch}' and '{target_branch}' exist")
+
+        return {
+            "success": False,
+            "error": helpful_message,
+            "suggestions": suggestions,
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while creating MR in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+        }
+
+
+@mcp.tool()
+async def create_release(
+    ctx: Context,
+    project_id: str,
+    tag_name: str,
+    name: str | None = None,
+    description: str | None = None,
+    ref: str | None = None,
+    milestones: list[str] | None = None,
+    released_at: str | None = None,
+    assets_links: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Create a new release in a project
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        tag_name: Tag name for the release (required)
+        name: Release title (optional, defaults to tag_name)
+        description: Release description/notes (optional, supports Markdown)
+        ref: Commit SHA, branch, or existing tag (required only if tag_name doesn't exist yet; auto-detects from current branch if not provided)
+        milestones: List of milestone titles to associate (optional)
+        released_at: ISO 8601 datetime for release (optional, defaults to current time)
+        assets_links: List of asset link dicts with 'name', 'url', and optional 'direct_asset_path' (optional)
+
+    Returns:
+        Result with success status and created release details
+
+    Raises:
+        Error if release creation fails
+    """
+    resolved_project_id, repo_info = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    # Auto-detect ref from current branch if not provided
+    if ref is None:
+        if not repo_info:
+            # Need to detect repo to get branch
+            repo_info = await detect_current_repo(ctx, gitlab_client)
+
+        if repo_info:
+            git_root = repo_info["git_root"]
+            current_branch = get_current_branch(git_root)
+
+            if current_branch:
+                ref = current_branch
+                logger.info(f"Auto-detected ref from current branch: {ref}")
+
+    try:
+        result = gitlab_client.create_release(
+            project_id=resolved_project_id,
+            tag_name=tag_name,
+            name=name,
+            description=description,
+            ref=ref,
+            milestones=milestones,
+            released_at=released_at,
+            assets_links=assets_links,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully created release '{tag_name}' in project {project_id}",
+            "release": {
+                "tag_name": result.get("tag_name"),
+                "name": result.get("name"),
+                "description": result.get("description"),
+                "created_at": result.get("created_at"),
+                "released_at": result.get("released_at"),
+                "author": result.get("author"),
+                "commit": result.get("commit"),
+                "milestones": result.get("milestones"),
+                "assets": result.get("assets"),
+            },
+            "project_id": project_id,
+        }
+    except httpx.HTTPStatusError as e:
+        import json
+
+        # Parse GitLab error response
+        try:
+            error_json = json.loads(e.response.text)
+            error_message = error_json.get("message", "Unknown error")
+        except (json.JSONDecodeError, AttributeError):
+            error_message = e.response.text if e.response.text else str(e)
+
+        helpful_message = f"Failed to create release '{tag_name}' in project {project_id}: {error_message}"
+        suggestions = []
+
+        # Add context-specific suggestions
+        if e.response.status_code == 409:
+            # Conflict - release already exists
+            helpful_message = f"Cannot create release: Release with tag '{tag_name}' already exists"
+            suggestions.append(f"Use a different tag name or update the existing release")
+            suggestions.append(f"View existing release: gitlab://projects/{project_id}/releases/{tag_name}")
+        elif e.response.status_code == 400:
+            # Bad request - usually validation error
+            if "Tag does not exist" in error_message or "ref" in error_message.lower():
+                helpful_message = f"Cannot create release: Tag '{tag_name}' does not exist"
+                suggestions.append(f"Create the tag first, or provide 'ref' parameter to create tag from a commit/branch")
+                if ref:
+                    suggestions.append(f"Current ref value: '{ref}' - verify this commit/branch exists")
+                else:
+                    suggestions.append("No ref provided - specify ref parameter or create the tag manually first")
+            else:
+                suggestions.append("Check that all parameters are valid")
+                suggestions.append("Verify tag_name format is correct")
+        elif e.response.status_code == 404:
+            # Not found - project doesn't exist
+            helpful_message = f"Cannot create release: Project '{project_id}' not found"
+            suggestions.append(f"Verify project '{project_id}' exists and you have access")
+        elif e.response.status_code == 403:
+            # Forbidden - insufficient permissions
+            helpful_message = f"Cannot create release: Insufficient permissions"
+            suggestions.append("You need Developer level access or higher to create releases")
+            suggestions.append("Check your role in the project")
+
+        return {
+            "success": False,
+            "error": helpful_message,
+            "suggestions": suggestions,
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "tag_name": tag_name,
+            "ref": ref,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while creating release '{tag_name}' in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "tag_name": tag_name,
         }
 
 
