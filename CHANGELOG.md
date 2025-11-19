@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Discussion Thread Interactions** - Reply to and manage discussion threads on merge requests
+  - `reply_to_discussion()` method in GitLabClient - Reply to existing discussion threads
+  - `resolve_discussion()` method in GitLabClient - Resolve or unresolve discussion threads
+  - `reply_to_discussion()` MCP tool - Reply to discussions with support for `project_id="current"` and `mr_iid="current"`
+  - `resolve_discussion_thread()` MCP tool - Resolve/unresolve discussions with support for `project_id="current"` and `mr_iid="current"`
+  - Full Markdown support in replies
+  - Comprehensive error handling for invalid discussion IDs and permissions
+
 - **Release Management** - Full support for creating and managing GitLab releases
   - `get_releases()` method in GitLabClient - List all releases for a project (sorted by release date, newest first)
   - `get_release()` method in GitLabClient - Get specific release by tag name

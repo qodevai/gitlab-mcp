@@ -9,6 +9,8 @@ A production-ready Model Context Protocol (MCP) server that provides GitLab inte
 - **Create Merge Requests** - Create new MRs directly from your current branch or any branch
 - **Current Branch MR Overview** - Complete details of the MR for your current branch
 - **MR Discussions** - View and track discussion threads on merge requests
+- **Reply to Discussions** - Reply to existing discussion threads with Markdown support
+- **Resolve Discussion Threads** - Resolve or unresolve discussion threads
 - **Code Changes** - See diffs and changed files in MRs
 - **Pipeline Status** - Monitor CI/CD pipeline health
 - **Approval Tracking** - Check who has approved and who needs to approve

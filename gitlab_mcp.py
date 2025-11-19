@@ -322,6 +322,94 @@ class GitLabClient:
             logger.exception(f"Unexpected error while creating note on MR !{mr_iid}: {e}")
             raise
 
+    def reply_to_discussion(
+        self, project_id: str, mr_iid: int, discussion_id: str, body: str
+    ) -> dict[str, Any]:
+        """Reply to an existing discussion thread on a merge request
+
+        Args:
+            project_id: Project ID or path
+            mr_iid: Merge request IID
+            discussion_id: Discussion thread ID
+            body: Reply text (supports Markdown)
+
+        Returns:
+            Created note data
+
+        Raises:
+            httpx.HTTPStatusError: If reply creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data = {"body": body}
+
+        try:
+            logger.info(f"Replying to discussion {discussion_id} on MR !{mr_iid} in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/merge_requests/{mr_iid}/discussions/{discussion_id}/notes",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully replied to discussion {discussion_id} on MR !{mr_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(
+                f"Failed to reply to discussion {discussion_id} on MR !{mr_iid}: {e.response.status_code} - {error_detail}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while replying to discussion {discussion_id} on MR !{mr_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while replying to discussion {discussion_id} on MR !{mr_iid}: {e}")
+            raise
+
+    def resolve_discussion(
+        self, project_id: str, mr_iid: int, discussion_id: str, resolved: bool
+    ) -> dict[str, Any]:
+        """Resolve or unresolve a discussion thread on a merge request
+
+        Args:
+            project_id: Project ID or path
+            mr_iid: Merge request IID
+            discussion_id: Discussion thread ID
+            resolved: True to resolve, False to unresolve
+
+        Returns:
+            Updated discussion data
+
+        Raises:
+            httpx.HTTPStatusError: If resolve/unresolve fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data = {"resolved": resolved}
+
+        try:
+            action = "Resolving" if resolved else "Unresolving"
+            logger.info(f"{action} discussion {discussion_id} on MR !{mr_iid} in project {project_id}")
+            response = self.client.put(
+                f"/projects/{encoded_id}/merge_requests/{mr_iid}/discussions/{discussion_id}",
+                json=data,
+            )
+            response.raise_for_status()
+            action_past = "resolved" if resolved else "unresolved"
+            logger.info(f"Successfully {action_past} discussion {discussion_id} on MR !{mr_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(
+                f"Failed to resolve discussion {discussion_id} on MR !{mr_iid}: {e.response.status_code} - {error_detail}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while resolving discussion {discussion_id} on MR !{mr_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while resolving discussion {discussion_id} on MR !{mr_iid}: {e}")
+            raise
+
     def create_merge_request(
         self,
         project_id: str,
@@ -1987,6 +2075,134 @@ async def comment_on_merge_request(ctx: Context, project_id: str, mr_iid: str | 
             "error": f"Unexpected error while commenting on MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
+        }
+
+
+@mcp.tool()
+async def reply_to_discussion(
+    ctx: Context, project_id: str, mr_iid: str | int, discussion_id: str, comment: str
+) -> dict[str, Any]:
+    """Reply to an existing discussion thread on a merge request
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+        discussion_id: Discussion thread ID to reply to
+        comment: Reply text to post (supports Markdown formatting)
+
+    Returns:
+        Result of reply operation with created note details
+
+    Raises:
+        Error if reply creation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+    if not resolved_mr_iid:
+        return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    try:
+        note = gitlab_client.reply_to_discussion(
+            project_id=resolved_project_id,
+            mr_iid=resolved_mr_iid,
+            discussion_id=discussion_id,
+            body=comment,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully replied to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}",
+            "note": note,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to reply to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while replying to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+
+
+@mcp.tool()
+async def resolve_discussion_thread(
+    ctx: Context, project_id: str, mr_iid: str | int, discussion_id: str, resolved: bool = True
+) -> dict[str, Any]:
+    """Resolve or unresolve a discussion thread on a merge request
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+        discussion_id: Discussion thread ID to resolve/unresolve
+        resolved: True to resolve the thread, False to unresolve it (default: True)
+
+    Returns:
+        Result of resolve/unresolve operation with updated discussion details
+
+    Raises:
+        Error if resolve/unresolve operation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+    if not resolved_mr_iid:
+        return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    try:
+        discussion = gitlab_client.resolve_discussion(
+            project_id=resolved_project_id,
+            mr_iid=resolved_mr_iid,
+            discussion_id=discussion_id,
+            resolved=resolved,
+        )
+
+        action = "resolved" if resolved else "unresolved"
+        return {
+            "success": True,
+            "message": f"Successfully {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}",
+            "discussion": discussion,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+            "resolved": resolved,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        action = "resolve" if resolved else "unresolve"
+        return {
+            "success": False,
+            "error": f"Failed to {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+    except Exception as e:
+        action = "resolve" if resolved else "unresolve"
+        return {
+            "success": False,
+            "error": f"Unexpected error while trying to {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
         }
 
 

@@ -188,6 +188,71 @@ The FastMCP server now includes comprehensive instructions that guide Claude Cod
 - Which resource to use for which query
 - Common query patterns
 
+## Testing Discussion Thread Interactions
+
+The server now supports replying to and managing discussion threads on merge requests.
+
+### Testing with MCP Inspector
+
+1. **Get Discussion IDs**:
+   ```
+   Resource: gitlab://current-project/merge-requests/{mr_iid}/discussions
+   ```
+   This returns all discussion threads with their IDs.
+
+2. **Reply to a Discussion**:
+   ```
+   Tool: reply_to_discussion
+   Parameters:
+   - project_id: "current" or "mygroup/myproject" or "123"
+   - mr_iid: "current" or "42"
+   - discussion_id: "abc123..." (from discussions resource)
+   - comment: "Thanks for the review! Fixed."
+   ```
+
+3. **Resolve a Discussion Thread**:
+   ```
+   Tool: resolve_discussion_thread
+   Parameters:
+   - project_id: "current" or "mygroup/myproject"
+   - mr_iid: "current" or "42"
+   - discussion_id: "abc123..."
+   - resolved: true (or false to unresolve)
+   ```
+
+### Testing with Claude Code
+
+Try these natural language queries:
+- "Reply to discussion abc123 on the current MR with 'Fixed this issue'"
+- "Resolve discussion abc123 on MR !42"
+- "Unresolve the first discussion thread"
+- "Reply to all unresolved discussions with 'Working on this'"
+
+### Common Test Scenarios
+
+1. **Reply to reviewer feedback**:
+   - Get discussions for current branch MR
+   - Reply to specific discussion thread
+   - Verify reply appears in GitLab UI
+
+2. **Resolve discussions after fixes**:
+   - Reply to discussion explaining the fix
+   - Resolve the discussion thread
+   - Verify resolved status in GitLab UI
+
+3. **Unresolve for further discussion**:
+   - Unresolve a previously resolved thread
+   - Add a new reply with questions
+   - Verify thread is marked as unresolved
+
+### Error Handling Tests
+
+Test these error scenarios:
+- Invalid discussion_id → Should return helpful error
+- Non-existent MR → Should return not found error
+- No permissions → Should return permission error
+- Missing required parameters → Should return validation error
+
 ## Troubleshooting
 
 ### Error: "Not in a GitLab repository or repository not found"
