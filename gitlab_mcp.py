@@ -474,6 +474,45 @@ class GitLabClient:
             logger.exception(f"Unexpected error while merging MR !{mr_iid}: {e}")
             raise
 
+    def close_mr(self, project_id: str, mr_iid: int) -> dict[str, Any]:
+        """Close a merge request
+
+        Args:
+            project_id: Project ID or path
+            mr_iid: Merge request IID
+
+        Returns:
+            Closed MR data
+
+        Raises:
+            httpx.HTTPStatusError: If close operation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {"state_event": "close"}
+
+        try:
+            logger.info(f"Closing MR !{mr_iid} in project {project_id}")
+            response = self.client.put(
+                f"/projects/{encoded_id}/merge_requests/{mr_iid}",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully closed MR !{mr_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(
+                f"Failed to close MR !{mr_iid}: {e.response.status_code} - {error_detail}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while closing MR !{mr_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while closing MR !{mr_iid}: {e}")
+            raise
+
     def get_project_variable(self, project_id: str, key: str) -> dict[str, Any] | None:
         """Get a specific CI/CD variable for a project
 
@@ -1224,6 +1263,7 @@ TOOLS - Perform actions (all support "current"):
 - create_merge_request(project_id, title, source_branch, target_branch, ...) - Create a new MR (supports project_id="current", auto-detects source_branch)
 - comment_on_merge_request(project_id, mr_iid, comment) - Leave a comment (supports project_id="current", mr_iid="current")
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
+- close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 
 Examples:
@@ -1233,6 +1273,8 @@ Examples:
 - "Create MR from feature to dev" → create_merge_request("current", "Bug fix", source_branch="feature", target_branch="dev")
 - "Comment on my MR saying 'LGTM'" → comment_on_merge_request("current", "current", "LGTM")
 - "Merge MR !20 in project qodev/handbook" → merge_merge_request("qodev/handbook", 20)
+- "Close my MR" → close_merge_request("current", "current")
+- "Close MR !20 in project qodev/handbook" → close_merge_request("qodev/handbook", 20)
 - "What discussions are on my MR?" → gitlab://projects/current/merge-requests/current/discussions (token-efficient!)
 - "Set API_KEY in current project" → set_project_ci_variable("current", "API_KEY", "secret123")
 - "What releases exist?" → gitlab://projects/current/releases/
@@ -1948,6 +1990,69 @@ async def merge_merge_request(
         return {
             "success": False,
             "error": f"Unexpected error while merging MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+
+
+@mcp.tool()
+async def close_merge_request(
+    ctx: Context,
+    project_id: str,
+    mr_iid: str | int,
+) -> dict[str, Any]:
+    """Close a specific merge request by project and MR IID
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+
+    Returns:
+        Result of close operation with closed MR details
+
+    Raises:
+        Error if close operation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+    if not resolved_mr_iid:
+        return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    try:
+        result = gitlab_client.close_mr(
+            project_id=resolved_project_id,
+            mr_iid=resolved_mr_iid,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully closed MR !{resolved_mr_iid} in project {project_id}",
+            "merge_request": result,
+        }
+    except httpx.HTTPStatusError as e:
+        import json
+
+        # Parse GitLab error response
+        try:
+            error_json = json.loads(e.response.text)
+            error_message = error_json.get("message", "Unknown error")
+        except (json.JSONDecodeError, AttributeError):
+            error_message = e.response.text if e.response.text else str(e)
+
+        return {
+            "success": False,
+            "error": f"Failed to close MR !{resolved_mr_iid} in project {project_id}: {error_message}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while closing MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
