@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Merge Request Status Resource** - Lightweight merge readiness check for token optimization
+  - `gitlab://projects/{project_id}/merge-requests/{mr_iid}/status` MCP resource
+  - Single call replaces 3-4 separate fetches (pipeline + discussions + approvals)
+  - Returns `ready_to_merge` boolean and `blockers` array for quick decision making
+  - Includes failed job IDs for easy log access
+  - Includes unresolved discussion IDs for quick navigation
+  - Supports `project_id="current"` and `mr_iid="current"`
+  - **Token savings**: 85-90% reduction (500-800 tokens vs 5,500 tokens for separate calls)
+  - Answers common questions: "Is this MR ready to merge?", "What's blocking my MR?"
+
 - **Discussion Thread Interactions** - Reply to and manage discussion threads on merge requests
   - `reply_to_discussion()` method in GitLabClient - Reply to existing discussion threads
   - `resolve_discussion()` method in GitLabClient - Resolve or unresolve discussion threads

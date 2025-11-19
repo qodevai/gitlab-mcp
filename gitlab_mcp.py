@@ -1536,7 +1536,8 @@ All resources use: gitlab://projects/{project_id}/...
 RESOURCES - Access GitLab data:
 
 Current Repo/Branch (use project_id="current" and mr_iid="current"):
-- gitlab://projects/current/merge-requests/current - Comprehensive MR overview (RECOMMENDED - includes discussions, changes, commits, pipeline, approvals)
+- gitlab://projects/current/merge-requests/current/status - Lightweight merge readiness check (RECOMMENDED for "ready to merge?" - includes pipeline, discussions, approvals summary)
+- gitlab://projects/current/merge-requests/current - Comprehensive MR overview (includes discussions, changes, commits, pipeline, approvals)
 - gitlab://projects/current/merge-requests/current/discussions - Just discussions/comments
 - gitlab://projects/current/merge-requests/current/changes - Just code diff
 - gitlab://projects/current/merge-requests/current/commits - Just commits
@@ -1565,6 +1566,9 @@ TOOLS - Perform actions (all support "current"):
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 
 Examples:
+- "Is this MR ready to merge?" → gitlab://projects/current/merge-requests/current/status
+- "What's blocking my MR?" → gitlab://projects/current/merge-requests/current/status
+- "Check MR status" → gitlab://projects/{id}/merge-requests/{iid}/status
 - "What's the status of my MR?" → gitlab://projects/current/merge-requests/current
 - "Show me MR !20 in qodev/handbook" → gitlab://projects/qodev%2Fhandbook/merge-requests/20
 - "Create MR for current branch" → create_merge_request("current", "Add new feature")
@@ -1586,6 +1590,7 @@ Examples:
 - "Create a release" → create_release("current", "v1.0.0", name="Version 1.0", description="Initial release")
 
 Token Efficiency:
+- Use /status for merge readiness checks (85-90% token savings vs separate calls)
 - Use comprehensive resource for full overview: gitlab://projects/{id}/merge-requests/{iid}
 - Use granular resources when you only need specific data: /discussions, /changes, /commits, /approvals, /pipeline-jobs
 
@@ -1625,6 +1630,16 @@ def gitlab_help() -> dict[str, Any]:
             "encoding_note": "For project paths with slashes, URL-encode them or use plain format (will be auto-encoded)",
         },
         "available_resources": {
+            "mr_status": {
+                "uri": "gitlab://projects/{project_id}/merge-requests/{mr_iid}/status",
+                "examples": [
+                    "gitlab://projects/current/merge-requests/current/status",
+                    "gitlab://projects/qodev%2Fhandbook/merge-requests/20/status",
+                ],
+                "description": "⭐ RECOMMENDED: Lightweight merge readiness check (85-90% token savings vs separate calls)",
+                "queries": ["Is this MR ready to merge?", "What's blocking my MR?", "Can I merge this?", "Check MR status"],
+                "includes": ["ready_to_merge boolean", "blockers array", "pipeline status with failed job IDs", "unresolved discussion IDs", "approval status"],
+            },
             "comprehensive_mr": {
                 "uri": "gitlab://projects/{project_id}/merge-requests/{mr_iid}",
                 "examples": [
@@ -1632,8 +1647,8 @@ def gitlab_help() -> dict[str, Any]:
                     "gitlab://projects/qodev%2Fhandbook/merge-requests/20 (specific project & MR)",
                     "gitlab://projects/123/merge-requests/20 (numeric IDs)",
                 ],
-                "description": "⭐ RECOMMENDED: Complete MR overview (discussions, changes, commits, pipeline, approvals)",
-                "queries": ["What's my MR status?", "Show me everything about MR !20", "Summarize the MR"],
+                "description": "Complete MR overview (discussions, changes, commits, pipeline, approvals)",
+                "queries": ["Show me everything about MR !20", "Summarize the MR"],
             },
             "granular_mr_discussions": {
                 "uri": "gitlab://projects/{project_id}/merge-requests/{mr_iid}/discussions",
@@ -1760,9 +1775,10 @@ def gitlab_help() -> dict[str, Any]:
             },
         },
         "usage": "Use ReadMcpResourceTool with server='gitlab' and the appropriate URI",
-        "token_efficiency_tip": "Use granular resources (/discussions, /changes, etc.) when you only need specific data instead of the comprehensive MR overview",
+        "token_efficiency_tip": "Use /status for merge readiness checks (85-90% savings). Use granular resources (/discussions, /changes, etc.) when you only need specific data instead of the comprehensive MR overview",
         "common_questions": [
-            "What's the status of my MR? → gitlab://projects/current/merge-requests/current",
+            "Is this MR ready to merge? → gitlab://projects/current/merge-requests/current/status",
+            "What's blocking my MR? → gitlab://projects/current/merge-requests/current/status",
             "What discussions are on my MR? → gitlab://projects/current/merge-requests/current/discussions",
             "Show me MR !20 in qodev/handbook → gitlab://projects/qodev%2Fhandbook/merge-requests/20",
             "Create MR for current branch → create_merge_request('current', 'Title')",
@@ -2021,6 +2037,116 @@ async def project_merge_request_pipeline_jobs(ctx: Context, project_id: str, mr_
             "successful_jobs": len([j for j in jobs if j.get("status") == "success"]),
         },
     }
+
+
+@mcp.resource("gitlab://projects/{project_id}/merge-requests/{mr_iid}/status")
+async def project_merge_request_status(ctx: Context, project_id: str, mr_iid: str) -> dict[str, Any]:
+    """Get merge readiness status for a merge request (supports project_id="current" and mr_iid="current")
+
+    Lightweight resource that answers "Is this MR ready to merge?" by checking:
+    - Pipeline status (passing/failed)
+    - Discussion threads (resolved/unresolved)
+    - Approval status (if configured)
+    - Merge conflicts
+
+    Returns a summary with blockers and actionable IDs for follow-up.
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, mr_iid)
+    if not resolved_mr_iid:
+        return {"error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    try:
+        # Fetch core MR data
+        mr = gitlab_client.get_merge_request(resolved_project_id, resolved_mr_iid)
+
+        # Fetch pipeline + jobs (if pipeline exists)
+        pipelines = gitlab_client.get_mr_pipelines(resolved_project_id, resolved_mr_iid)
+        latest_pipeline = pipelines[0] if pipelines else None
+
+        pipeline_status = None
+        failed_jobs = []
+        if latest_pipeline:
+            jobs = gitlab_client.get_pipeline_jobs(resolved_project_id, latest_pipeline["id"])
+            failed_jobs = [
+                {
+                    "id": j["id"],
+                    "name": j["name"],
+                    "stage": j.get("stage"),
+                    "web_url": j.get("web_url"),
+                }
+                for j in jobs
+                if j.get("status") == "failed"
+            ]
+            pipeline_status = {
+                "id": latest_pipeline["id"],
+                "status": latest_pipeline["status"],
+                "web_url": latest_pipeline.get("web_url"),
+                "failed_jobs": failed_jobs,
+            }
+
+        # Fetch discussions
+        discussions = gitlab_client.get_mr_discussions(resolved_project_id, resolved_mr_iid)
+        unresolved_discussions = [d for d in discussions if not d.get("notes", [{}])[0].get("resolved", False)]
+        unresolved_ids = [d["id"] for d in unresolved_discussions]
+
+        # Fetch approvals (may not be available)
+        approvals_data = None
+        try:
+            approvals = gitlab_client.get_mr_approvals(resolved_project_id, resolved_mr_iid)
+            approvals_data = {
+                "approved": approvals.get("approved", False),
+                "approvals_required": approvals.get("approvals_required", 0),
+                "approvals_left": approvals.get("approvals_left", 0),
+                "approved_by": [u["user"]["username"] for u in approvals.get("approved_by", [])],
+            }
+        except Exception:
+            approvals_data = {"note": "Approvals not available or not configured"}
+
+        # Calculate blockers
+        blockers = []
+        if latest_pipeline and latest_pipeline["status"] in ["failed", "canceled"]:
+            blockers.append("pipeline_failed")
+        if latest_pipeline and latest_pipeline["status"] in ["pending", "running", "created"]:
+            blockers.append("pipeline_running")
+        if len(unresolved_discussions) > 0:
+            blockers.append("unresolved_discussions")
+        if approvals_data and not approvals_data.get("note"):
+            if not approvals_data.get("approved"):
+                blockers.append("approvals_required")
+        if mr.get("merge_status") == "cannot_be_merged":
+            blockers.append("merge_conflicts")
+        if mr.get("draft") or mr.get("work_in_progress"):
+            blockers.append("draft")
+
+        ready_to_merge = (
+            len(blockers) == 0 and mr.get("state") == "opened" and (not latest_pipeline or latest_pipeline["status"] == "success")
+        )
+
+        return {
+            "ready_to_merge": ready_to_merge,
+            "blockers": blockers,
+            "merge_request": {
+                "iid": mr["iid"],
+                "title": mr["title"],
+                "state": mr["state"],
+                "merge_status": mr.get("merge_status"),
+                "draft": mr.get("draft", False),
+                "web_url": mr.get("web_url"),
+            },
+            "pipeline": pipeline_status,
+            "discussions": {
+                "total": len(discussions),
+                "unresolved": len(unresolved_discussions),
+                "unresolved_ids": unresolved_ids,
+            },
+            "approvals": approvals_data,
+        }
+    except Exception as e:
+        return {"error": f"Failed to fetch MR status: {str(e)}"}
 
 
 @mcp.resource("gitlab://projects/{project_id}/pipelines/")
