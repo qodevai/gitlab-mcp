@@ -603,6 +603,78 @@ class GitLabClient:
             logger.exception(f"Unexpected error while closing MR !{mr_iid}: {e}")
             raise
 
+    def update_mr(
+        self,
+        project_id: str,
+        mr_iid: int,
+        title: str | None = None,
+        description: str | None = None,
+        target_branch: str | None = None,
+        state_event: str | None = None,
+        assignee_ids: list[int] | None = None,
+        reviewer_ids: list[int] | None = None,
+        labels: str | None = None,
+    ) -> dict[str, Any]:
+        """Update a merge request
+
+        Args:
+            project_id: Project ID or path
+            mr_iid: Merge request IID
+            title: New title (optional)
+            description: New description (optional)
+            target_branch: New target branch (optional)
+            state_event: State change event - "open", "close", "reopen" (optional)
+            assignee_ids: List of assignee IDs (optional)
+            reviewer_ids: List of reviewer IDs (optional)
+            labels: Comma-separated labels (optional)
+
+        Returns:
+            Updated MR data
+
+        Raises:
+            httpx.HTTPStatusError: If update fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {}
+
+        if title is not None:
+            data["title"] = title
+        if description is not None:
+            data["description"] = description
+        if target_branch is not None:
+            data["target_branch"] = target_branch
+        if state_event is not None:
+            data["state_event"] = state_event
+        if assignee_ids is not None:
+            data["assignee_ids"] = assignee_ids
+        if reviewer_ids is not None:
+            data["reviewer_ids"] = reviewer_ids
+        if labels is not None:
+            data["labels"] = labels
+
+        try:
+            logger.info(f"Updating MR !{mr_iid} in project {project_id} with {len(data)} field(s)")
+            response = self.client.put(
+                f"/projects/{encoded_id}/merge_requests/{mr_iid}",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully updated MR !{mr_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(
+                f"Failed to update MR !{mr_iid}: {e.response.status_code} - {error_detail}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while updating MR !{mr_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while updating MR !{mr_iid}: {e}")
+            raise
+
     def wait_for_pipeline(
         self,
         project_id: str,
@@ -1488,6 +1560,7 @@ TOOLS - Perform actions (all support "current"):
 - comment_on_merge_request(project_id, mr_iid, comment) - Leave a comment (supports project_id="current", mr_iid="current")
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
 - close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
+- update_merge_request(project_id, mr_iid, title, description, ...) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - Wait for pipeline to complete (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 
@@ -1500,6 +1573,9 @@ Examples:
 - "Merge MR !20 in project qodev/handbook" → merge_merge_request("qodev/handbook", 20)
 - "Close my MR" → close_merge_request("current", "current")
 - "Close MR !20 in project qodev/handbook" → close_merge_request("qodev/handbook", 20)
+- "Update my MR title" → update_merge_request("current", "current", title="New Title")
+- "Update MR !20 description" → update_merge_request("qodev/handbook", 20, description="Updated description")
+- "Update MR title and description" → update_merge_request("current", "current", title="New Title", description="New description")
 - "Wait for current MR's pipeline" → wait_for_pipeline("current", mr_iid="current")
 - "Wait for pipeline 12345" → wait_for_pipeline("current", pipeline_id=12345)
 - "Wait for pipeline with 30min timeout" → wait_for_pipeline("current", pipeline_id=12345, timeout_seconds=1800)
@@ -2409,6 +2485,98 @@ async def close_merge_request(
         return {
             "success": False,
             "error": f"Unexpected error while closing MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+
+
+@mcp.tool()
+async def update_merge_request(
+    ctx: Context,
+    project_id: str,
+    mr_iid: str | int,
+    title: str | None = None,
+    description: str | None = None,
+    target_branch: str | None = None,
+    state_event: str | None = None,
+    assignee_ids: list[int] | None = None,
+    reviewer_ids: list[int] | None = None,
+    labels: str | None = None,
+) -> dict[str, Any]:
+    """Update a merge request's title, description, or other properties
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+        title: New MR title (optional)
+        description: New MR description (optional)
+        target_branch: New target branch (optional)
+        state_event: Change state: "open", "close", "reopen" (optional)
+        assignee_ids: List of assignee user IDs (optional)
+        reviewer_ids: List of reviewer user IDs (optional)
+        labels: Comma-separated label names (optional)
+
+    Returns:
+        Result with success status and updated MR details
+
+    Raises:
+        Error if update fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+    if not resolved_mr_iid:
+        return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    try:
+        result = gitlab_client.update_mr(
+            project_id=resolved_project_id,
+            mr_iid=resolved_mr_iid,
+            title=title,
+            description=description,
+            target_branch=target_branch,
+            state_event=state_event,
+            assignee_ids=assignee_ids,
+            reviewer_ids=reviewer_ids,
+            labels=labels,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully updated MR !{resolved_mr_iid} in project {project_id}",
+            "merge_request": {
+                "iid": result.get("iid"),
+                "title": result.get("title"),
+                "description": result.get("description"),
+                "state": result.get("state"),
+                "web_url": result.get("web_url"),
+            },
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except httpx.HTTPStatusError as e:
+        import json
+
+        # Parse GitLab error response
+        try:
+            error_json = json.loads(e.response.text)
+            error_message = error_json.get("message", "Unknown error")
+        except (json.JSONDecodeError, AttributeError):
+            error_message = e.response.text if e.response.text else str(e)
+
+        return {
+            "success": False,
+            "error": f"Failed to update MR !{resolved_mr_iid} in project {project_id}: {error_message}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while updating MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
