@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -512,6 +514,140 @@ class GitLabClient:
         except Exception as e:
             logger.exception(f"Unexpected error while closing MR !{mr_iid}: {e}")
             raise
+
+    def wait_for_pipeline(
+        self,
+        project_id: str,
+        pipeline_id: int,
+        timeout_seconds: int = 3600,
+        check_interval: int = 10,
+        include_failed_logs: bool = True,
+    ) -> dict[str, Any]:
+        """Wait for a pipeline to complete (success or failure)
+
+        Args:
+            project_id: Project ID or path
+            pipeline_id: Pipeline ID to wait for
+            timeout_seconds: Maximum time to wait in seconds (default: 3600/1 hour)
+            check_interval: How often to check status in seconds (default: 10)
+            include_failed_logs: Include last 10 lines of failed job logs (default: True)
+
+        Returns:
+            Dict with status, duration, job summary, and optionally failed job logs
+
+        Raises:
+            httpx.HTTPStatusError: If API calls fail
+        """
+        encoded_id = self._encode_project_id(project_id)
+        start_time = time.time()
+        checks = 0
+
+        logger.info(
+            f"Waiting for pipeline {pipeline_id} in project {project_id} "
+            f"(timeout: {timeout_seconds}s, interval: {check_interval}s)"
+        )
+
+        final_status = None
+        pipeline = None
+
+        try:
+            while True:
+                checks += 1
+                elapsed = time.time() - start_time
+
+                # Get current pipeline status
+                pipeline = self.get_pipeline(project_id, pipeline_id)
+                status = pipeline.get("status")
+
+                logger.debug(
+                    f"Check #{checks}: Pipeline {pipeline_id} status = {status} "
+                    f"(elapsed: {elapsed:.1f}s)"
+                )
+
+                # Check if pipeline has completed
+                if status in ["success", "failed", "canceled", "skipped"]:
+                    final_status = status
+                    logger.info(
+                        f"Pipeline {pipeline_id} completed with status '{status}' "
+                        f"after {elapsed:.1f}s ({checks} checks)"
+                    )
+                    break
+
+                # Check timeout
+                if elapsed > timeout_seconds:
+                    final_status = "timeout"
+                    logger.warning(
+                        f"Pipeline {pipeline_id} timed out after {elapsed:.1f}s "
+                        f"(status was '{status}')"
+                    )
+                    break
+
+                # Wait before next check
+                time.sleep(check_interval)
+
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(
+                f"Failed to check pipeline {pipeline_id}: {e.response.status_code} - {error_detail}"
+            )
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while waiting for pipeline {pipeline_id}: {e}")
+            raise
+
+        # Build response
+        total_duration = time.time() - start_time
+        result: dict[str, Any] = {
+            "final_status": final_status,
+            "pipeline_id": pipeline_id,
+            "pipeline_url": pipeline.get("web_url") if pipeline else None,
+            "total_duration": round(total_duration, 2),
+            "checks_performed": checks,
+        }
+
+        # Get job summary if pipeline completed
+        if pipeline and final_status != "timeout":
+            try:
+                jobs = self.get_pipeline_jobs(project_id, pipeline_id)
+                job_summary = {
+                    "total": len(jobs),
+                    "success": len([j for j in jobs if j.get("status") == "success"]),
+                    "failed": len([j for j in jobs if j.get("status") == "failed"]),
+                }
+                result["job_summary"] = job_summary
+
+                # Include failed job logs if requested
+                if include_failed_logs and final_status == "failed":
+                    failed_jobs = [j for j in jobs if j.get("status") == "failed"]
+                    failed_job_details = []
+
+                    for job in failed_jobs[:5]:  # Limit to first 5 failed jobs
+                        job_detail = {
+                            "id": job.get("id"),
+                            "name": job.get("name"),
+                            "status": job.get("status"),
+                            "web_url": job.get("web_url"),
+                        }
+
+                        # Try to fetch last 10 lines of log
+                        try:
+                            log = self.get_job_log(project_id, job["id"])
+                            lines = log.strip().split("\n")
+                            job_detail["last_log_lines"] = "\n".join(lines[-10:])
+                        except Exception as log_error:
+                            logger.warning(
+                                f"Could not fetch log for job {job['id']}: {log_error}"
+                            )
+                            job_detail["last_log_lines"] = "(log unavailable)"
+
+                        failed_job_details.append(job_detail)
+
+                    result["failed_jobs"] = failed_job_details
+
+            except Exception as job_error:
+                logger.warning(f"Could not fetch job details: {job_error}")
+
+        return result
 
     def get_project_variable(self, project_id: str, key: str) -> dict[str, Any] | None:
         """Get a specific CI/CD variable for a project
@@ -1264,6 +1400,7 @@ TOOLS - Perform actions (all support "current"):
 - comment_on_merge_request(project_id, mr_iid, comment) - Leave a comment (supports project_id="current", mr_iid="current")
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
 - close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
+- wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - Wait for pipeline to complete (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 
 Examples:
@@ -1275,6 +1412,9 @@ Examples:
 - "Merge MR !20 in project qodev/handbook" → merge_merge_request("qodev/handbook", 20)
 - "Close my MR" → close_merge_request("current", "current")
 - "Close MR !20 in project qodev/handbook" → close_merge_request("qodev/handbook", 20)
+- "Wait for current MR's pipeline" → wait_for_pipeline("current", mr_iid="current")
+- "Wait for pipeline 12345" → wait_for_pipeline("current", pipeline_id=12345)
+- "Wait for pipeline with 30min timeout" → wait_for_pipeline("current", pipeline_id=12345, timeout_seconds=1800)
 - "What discussions are on my MR?" → gitlab://projects/current/merge-requests/current/discussions (token-efficient!)
 - "Set API_KEY in current project" → set_project_ci_variable("current", "API_KEY", "secret123")
 - "What releases exist?" → gitlab://projects/current/releases/
@@ -2055,6 +2195,133 @@ async def close_merge_request(
             "error": f"Unexpected error while closing MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
+        }
+
+
+@mcp.tool()
+async def wait_for_pipeline(
+    ctx: Context,
+    project_id: str,
+    pipeline_id: str | int | None = None,
+    mr_iid: str | int | None = None,
+    timeout_seconds: int = 3600,
+    check_interval: int = 10,
+    include_failed_logs: bool = True,
+) -> dict[str, Any]:
+    """Wait for a GitLab pipeline to complete (success or failure)
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        pipeline_id: Pipeline ID to wait for (required if mr_iid not provided)
+        mr_iid: MR IID to get latest pipeline from (alternative to pipeline_id, supports "current")
+        timeout_seconds: Maximum time to wait in seconds (default: 3600/1 hour)
+        check_interval: How often to check status in seconds (default: 10)
+        include_failed_logs: Include last 10 lines of failed job logs (default: True)
+
+    Returns:
+        Result with final status, duration, job summary, and optionally failed job logs
+
+    Raises:
+        Error if wait operation fails
+    """
+    # Resolve project_id
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    # Validate that either pipeline_id or mr_iid is provided (but not both)
+    if pipeline_id is None and mr_iid is None:
+        return {
+            "success": False,
+            "error": "Must provide either 'pipeline_id' or 'mr_iid'",
+        }
+
+    if pipeline_id is not None and mr_iid is not None:
+        return {
+            "success": False,
+            "error": "Cannot provide both 'pipeline_id' and 'mr_iid' - choose one",
+        }
+
+    # If mr_iid provided, get the latest pipeline from the MR
+    resolved_pipeline_id = None
+    if mr_iid is not None:
+        resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+        if not resolved_mr_iid:
+            return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+        try:
+            pipelines = gitlab_client.get_mr_pipelines(resolved_project_id, resolved_mr_iid)
+            if not pipelines:
+                return {
+                    "success": False,
+                    "error": f"No pipelines found for MR !{resolved_mr_iid}",
+                    "project_id": project_id,
+                    "mr_iid": resolved_mr_iid,
+                }
+            # Get the latest pipeline (first in list)
+            latest_pipeline = pipelines[0]
+            resolved_pipeline_id = latest_pipeline["id"]
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to get pipelines for MR !{resolved_mr_iid}: {str(e)}",
+                "project_id": project_id,
+                "mr_iid": resolved_mr_iid,
+            }
+    else:
+        # Use provided pipeline_id
+        try:
+            resolved_pipeline_id = int(pipeline_id)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "error": f"Invalid pipeline_id: '{pipeline_id}' (must be an integer)",
+            }
+
+    # Wait for the pipeline
+    try:
+        result = gitlab_client.wait_for_pipeline(
+            project_id=resolved_project_id,
+            pipeline_id=resolved_pipeline_id,
+            timeout_seconds=timeout_seconds,
+            check_interval=check_interval,
+            include_failed_logs=include_failed_logs,
+        )
+
+        # Determine success based on final status
+        final_status = result.get("final_status")
+        is_success = final_status == "success"
+
+        return {
+            "success": is_success,
+            "message": f"Pipeline {resolved_pipeline_id} completed with status '{final_status}' "
+            f"after {result.get('total_duration')}s",
+            **result,
+            "project_id": project_id,
+        }
+    except httpx.HTTPStatusError as e:
+        import json
+
+        # Parse GitLab error response
+        try:
+            error_json = json.loads(e.response.text)
+            error_message = error_json.get("message", "Unknown error")
+        except (json.JSONDecodeError, AttributeError):
+            error_message = e.response.text if e.response.text else str(e)
+
+        return {
+            "success": False,
+            "error": f"Failed to wait for pipeline {resolved_pipeline_id} in project {project_id}: {error_message}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "pipeline_id": resolved_pipeline_id,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while waiting for pipeline {resolved_pipeline_id} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "pipeline_id": resolved_pipeline_id,
         }
 
 
