@@ -178,11 +178,27 @@ class GitLabClient:
         encoded_id = self._encode_project_id(project_id)
         return self.get(f"/projects/{encoded_id}/merge_requests/{mr_iid}")
 
-    def get_pipelines(self, project_id: str, ref: str | None = None) -> list[dict[str, Any]]:
-        """Get pipelines for a project"""
+    def get_pipelines(
+        self,
+        project_id: str,
+        ref: str | None = None,
+        per_page: int = 3,
+        max_pages: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Get pipelines for a project.
+
+        Args:
+            project_id: Project ID or path
+            ref: Optional branch/tag to filter by
+            per_page: Number of pipelines per page (default: 3)
+            max_pages: Maximum number of pages to fetch (default: 1)
+
+        Returns:
+            List of pipeline objects (default: 3 most recent)
+        """
         encoded_id = self._encode_project_id(project_id)
         params = {"ref": ref} if ref else {}
-        return self.get_paginated(f"/projects/{encoded_id}/pipelines", params=params)
+        return self.get_paginated(f"/projects/{encoded_id}/pipelines", params=params, per_page=per_page, max_pages=max_pages)
 
     def get_pipeline(self, project_id: str, pipeline_id: int) -> dict[str, Any]:
         """Get a specific pipeline"""
@@ -1595,6 +1611,35 @@ All resources use: gitlab://projects/{project_id}/...
 - mr_iid can be: numeric IID (20) or "current" (for current branch's MR)
 - For project paths with slashes, URL-encode them: "qodev/handbook" → "qodev%2Fhandbook" (or use plain format - will be auto-encoded)
 
+COMMON WORKFLOWS:
+
+After Pushing Code - Monitor Pipeline:
+  ✅ ALWAYS use wait_for_pipeline tool (PRIMARY METHOD):
+    - wait_for_pipeline(project_id="current", mr_iid="current") - Wait for current MR's pipeline
+    - wait_for_pipeline(project_id="current", pipeline_id=123) - Wait for specific pipeline
+    - Automatically polls every 10s, returns final status with failed job logs
+    - Token cost: 200-500 tokens
+
+  ❌ DON'T manually poll with sleep + read pipelines resource in a loop
+
+Quick Pipeline Status Check:
+  ✅ Use pipelines resource (limited to 3 most recent):
+    - gitlab://projects/current/pipelines/ - Last 3 pipelines
+    - Token cost: 50-100 tokens
+    - Good for: "What's my latest pipeline status?" or "Show recent pipelines"
+
+Checking MR Merge Readiness:
+  ✅ Use lightweight status resource:
+    - gitlab://projects/current/merge-requests/current/status
+    - Returns: pipeline status, discussions, approvals, ready_to_merge boolean
+    - Token cost: 500-800 tokens (85-90% savings vs separate fetches)
+
+WHEN TO USE WHAT:
+  "Monitor pipeline after pushing code" → wait_for_pipeline tool
+  "What's my latest pipeline status?" → gitlab://projects/current/pipelines/
+  "Is my MR ready to merge?" → gitlab://projects/current/merge-requests/current/status
+  "Why did pipeline fail?" → wait_for_pipeline (includes failed job logs) OR pipeline-jobs resource
+
 RESOURCES - Access GitLab data:
 
 Current Repo/Branch (use project_id="current" and mr_iid="current"):
@@ -1606,7 +1651,7 @@ Current Repo/Branch (use project_id="current" and mr_iid="current"):
 - gitlab://projects/current/merge-requests/current/approvals - Just approval status
 - gitlab://projects/current/merge-requests/current/pipeline-jobs - Just pipeline jobs
 - gitlab://projects/current/merge-requests/ - All open MRs in current project
-- gitlab://projects/current/pipelines/ - Pipelines for current project
+- gitlab://projects/current/pipelines/ - Last 3 pipelines for current project (⚡ 50-100 tokens; for monitoring, use wait_for_pipeline tool instead)
 - gitlab://projects/current/releases/ - All releases in current project
 - gitlab://projects/current/releases/{tag_name} - Specific release by tag
 - gitlab://projects/current/jobs/{job_id}/artifacts - List all artifacts for a job
@@ -1626,7 +1671,7 @@ TOOLS - Perform actions (all support "current"):
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
 - close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
 - update_merge_request(project_id, mr_iid, title, description, ...) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
-- wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - Wait for pipeline to complete (supports project_id="current", mr_iid="current")
+- wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 
 Examples:

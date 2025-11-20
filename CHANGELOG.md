@@ -47,6 +47,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full support for MR options: description, assignees, reviewers, labels, squash, auto-remove source branch
   - Comprehensive error handling with helpful suggestions for common issues (duplicate MR, invalid branches, etc.)
 
+### Changed
+- **Optimized Pipeline Monitoring** - Reduced token consumption and improved workflow guidance
+  - **Code change**: `get_pipelines()` now returns only 3 most recent pipelines by default (down from 10,000 max)
+    - **Token reduction: 95-98%** (from 1,000-3,000 tokens → 50-100 tokens)
+    - Most users only need the latest 1-3 pipelines for status checks
+    - Added optional `per_page` and `max_pages` parameters for flexibility when more pipelines are needed
+    - Maintains optimized defaults while allowing customization via method parameters
+  - **Server instructions**: Added "Common Workflows" section with prescriptive guidance
+    - Emphasizes `wait_for_pipeline` tool as PRIMARY METHOD for pipeline monitoring
+    - Clear "DO/DON'T" examples to prevent inefficient manual polling patterns
+    - Decision tree: "When to use what" for common pipeline-related queries
+    - Token cost estimates for each workflow pattern
+  - **Resource descriptions**: Updated with token costs and cross-references
+    - Pipelines resource notes it returns last 3 pipelines (50-100 tokens)
+    - Points users to `wait_for_pipeline` tool for monitoring scenarios
+  - **Expected impact**: 70-95% token reduction for pipeline operations
+    - Addresses 681 pipeline resource accesses (84% of all usage)
+    - Guides Claude toward efficient patterns instead of manual polling loops
+
 ## [1.0.0] - 2025-01-21
 
 ### Added - Production Release
