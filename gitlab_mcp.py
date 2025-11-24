@@ -925,6 +925,51 @@ class GitLabClient:
             logger.exception(f"Unexpected error getting CI/CD variable '{key}': {e}")
             raise
 
+    def _sanitize_variable(self, var: dict[str, Any]) -> dict[str, Any]:
+        """Remove sensitive value field from variable data.
+
+        Args:
+            var: Variable data from GitLab API
+
+        Returns:
+            Variable metadata without the value field (for security)
+        """
+        return {
+            "key": var.get("key"),
+            "variable_type": var.get("variable_type"),
+            "protected": var.get("protected"),
+            "masked": var.get("masked"),
+            "raw": var.get("raw"),
+            "environment_scope": var.get("environment_scope"),
+            "description": var.get("description"),
+        }
+
+    def list_project_variables(
+        self,
+        project_id: str,
+        per_page: int = 100,
+        max_pages: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List all CI/CD variables for a project (values not included for security).
+
+        Args:
+            project_id: Project ID or path
+            per_page: Results per page (default: 100)
+            max_pages: Max pages to fetch (default: 100)
+
+        Returns:
+            List of variable metadata (without values)
+        """
+        encoded_id = self._encode_project_id(project_id)
+        logger.debug(f"Listing CI/CD variables for project {project_id}")
+        variables = self.get_paginated(
+            f"/projects/{encoded_id}/variables",
+            per_page=per_page,
+            max_pages=max_pages,
+        )
+        # Sanitize: remove value field for security
+        return [self._sanitize_variable(var) for var in variables]
+
     def create_project_variable(
         self,
         project_id: str,
@@ -1708,6 +1753,8 @@ Current Repo/Branch (use project_id="current" and mr_iid="current"):
 - gitlab://projects/current/pipelines/ - Last 3 pipelines for current project (⚡ 50-100 tokens; for monitoring, use wait_for_pipeline tool instead)
 - gitlab://projects/current/releases/ - All releases in current project
 - gitlab://projects/current/releases/{tag_name} - Specific release by tag
+- gitlab://projects/current/variables/ - List all CI/CD variables (metadata only, values not exposed for security)
+- gitlab://projects/current/variables/{key} - Get specific CI/CD variable metadata
 - gitlab://projects/current/jobs/{job_id}/artifacts - List all artifacts for a job
 - gitlab://projects/current/jobs/{job_id}/artifacts/{artifact_path} - Read specific artifact file (supports ?lines=N&offset=M)
 
@@ -1748,6 +1795,9 @@ Examples:
 - "Wait for pipeline with 30min timeout" → wait_for_pipeline("current", pipeline_id=12345, timeout_seconds=1800)
 - "What discussions are on my MR?" → gitlab://projects/current/merge-requests/current/discussions (token-efficient!)
 - "Set API_KEY in current project" → set_project_ci_variable("current", "API_KEY", "secret123")
+- "List all CI/CD variables" → gitlab://projects/current/variables/ (metadata only, values not exposed)
+- "Check if DATABASE_URL variable exists" → gitlab://projects/current/variables/DATABASE_URL
+- "What variables are protected?" → gitlab://projects/current/variables/
 - "What releases exist?" → gitlab://projects/current/releases/
 - "Show me release v1.0.0" → gitlab://projects/current/releases/v1.0.0
 - "Create a release" → create_release("current", "v1.0.0", name="Version 1.0", description="Initial release")
@@ -1761,6 +1811,12 @@ Token Efficiency:
 - Use /status for merge readiness checks (85-90% token savings vs separate calls)
 - Use comprehensive resource for full overview: gitlab://projects/{id}/merge-requests/{iid}
 - Use granular resources when you only need specific data: /discussions, /changes, /commits, /approvals, /pipeline-jobs
+
+CI/CD Variables (Security):
+- Read access returns metadata only (key, type, protected, masked, environment_scope)
+- Values are NEVER exposed for security
+- Use to check if a variable exists or verify its configuration
+- Use set_project_ci_variable() to update values
 
 DO NOT use git commands or branch inspection to answer GitLab questions.
 Use ReadMcpResourceTool with server="gitlab" for all GitLab queries.
@@ -2511,6 +2567,41 @@ async def project_release(ctx: Context, project_id: str, tag_name: str) -> dict[
         if e.response.status_code == 404:
             return {"error": f"Release with tag '{tag_name}' not found in project {project_id}"}
         return {"error": f"Failed to fetch release '{tag_name}': {e.response.text[:200]}"}
+
+
+@mcp.resource("gitlab://projects/{project_id}/variables/")
+async def project_variables(ctx: Context, project_id: str) -> list[dict[str, Any]] | dict[str, Any]:
+    """List all CI/CD variables for a project (metadata only, values not exposed for security)
+
+    Supports project_id="current" for current repository.
+
+    Returns variable metadata: key, variable_type, protected, masked, raw, environment_scope, description.
+    Values are NEVER exposed for security reasons.
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+    return gitlab_client.list_project_variables(resolved_id)
+
+
+@mcp.resource("gitlab://projects/{project_id}/variables/{key}")
+async def project_variable(ctx: Context, project_id: str, key: str) -> dict[str, Any]:
+    """Get a specific CI/CD variable's metadata (value not exposed for security)
+
+    Supports project_id="current" for current repository.
+
+    Returns: key, variable_type, protected, masked, raw, environment_scope, description.
+    Value is NEVER exposed for security reasons. Use set_project_ci_variable() to update values.
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    var = gitlab_client.get_project_variable(resolved_id, key)
+    if not var:
+        return {"error": f"Variable '{key}' not found in project", "key": key}
+
+    return gitlab_client._sanitize_variable(var)
 
 
 # Tools

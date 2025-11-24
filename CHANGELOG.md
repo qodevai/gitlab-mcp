@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CI/CD Variable Read Access** - Allow MCP clients to list and inspect CI/CD variables
+  - `list_project_variables()` method in GitLabClient - List all variables (metadata only)
+  - `_sanitize_variable()` helper method - Strips sensitive values from API responses
+  - `gitlab://projects/{project_id}/variables/` MCP resource - List all CI/CD variables
+  - `gitlab://projects/{project_id}/variables/{key}` MCP resource - Get specific variable metadata
+  - Supports `project_id="current"` for current repository
+  - **Security**: Values are NEVER exposed - only metadata (key, type, protected, masked, environment_scope, description)
+  - Use cases: Check if variable exists, verify configuration, audit variable setup
+  - To update values, use `set_project_ci_variable()` tool
+
 - **Merge Request Status Resource** - Lightweight merge readiness check for token optimization
   - `gitlab://projects/{project_id}/merge-requests/{mr_iid}/status` MCP resource
   - Single call replaces 3-4 separate fetches (pipeline + discussions + approvals)
