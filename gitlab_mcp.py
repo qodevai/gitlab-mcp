@@ -1305,26 +1305,68 @@ def create_branch_error(branch_name: str | None = None) -> dict[str, str]:
 
 # Helper functions for git repository detection
 def find_git_root(start_path: str) -> str | None:
-    """Walk up from start_path to find .git directory"""
-    current = Path(start_path).resolve()
+    """Find git repository root using git command (works with worktrees automatically).
 
-    while current != current.parent:
-        git_dir = current / ".git"
-        if git_dir.exists() and git_dir.is_dir():
-            return str(current)
-        current = current.parent
+    Args:
+        start_path: Starting directory path
 
-    return None
+    Returns:
+        Path to git repository root, or None if not in a git repository
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        if result.returncode == 0:
+            git_root = result.stdout.strip()
+            logger.debug(f"Found git repository at {git_root}")
+            return git_root
+
+        logger.debug(f"Not a git repository: {start_path}")
+        return None
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Git command timed out at {start_path}")
+        return None
+    except FileNotFoundError:
+        logger.error("Git command not found - is git installed?")
+        return None
+    except Exception as e:
+        logger.debug(f"Error finding git root: {e}")
+        return None
 
 
 def parse_gitlab_remote(git_root: str, base_url: str) -> str | None:
-    """Parse GitLab project path from git remote URL"""
-    git_config = Path(git_root) / ".git" / "config"
-    if not git_config.exists():
-        return None
+    """Parse GitLab project path from git remote using git command (works with worktrees).
 
+    Args:
+        git_root: Path to git repository root
+        base_url: Base URL of the GitLab instance
+
+    Returns:
+        Project path (e.g., "group/project"), or None if not found
+    """
     try:
-        config_content = git_config.read_text()
+        # Use git command to get remote URL - works with worktrees automatically!
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        if result.returncode != 0:
+            logger.debug(f"No git remote 'origin' found at {git_root}")
+            return None
+
+        remote_url = result.stdout.strip()
+        logger.debug(f"Found remote URL: {remote_url}")
 
         # Extract domain from base_url (e.g., gitlab.qodev.ai from https://gitlab.qodev.ai)
         domain_match = re.search(r"https?://([^/]+)", base_url)
@@ -1332,20 +1374,32 @@ def parse_gitlab_remote(git_root: str, base_url: str) -> str | None:
             return None
         domain = domain_match.group(1)
 
-        # Look for remote URL patterns matching this GitLab instance
-        # Matches both SSH and HTTPS URLs for the specific domain
+        # Parse project path from remote URL
+        # SSH: git@gitlab.qodev.ai:group/project.git
+        # HTTPS: https://gitlab.qodev.ai/group/project.git
         patterns = [
-            rf"url = .*@{re.escape(domain)}:(.+?)\.git",  # SSH: git@gitlab.qodev.ai:group/project.git
-            rf"url = https?://{re.escape(domain)}/(.+?)\.git",  # HTTPS: https://gitlab.qodev.ai/group/project.git
+            rf"@{re.escape(domain)}:(.+?)\.git$",  # SSH
+            rf"https?://{re.escape(domain)}/(.+?)\.git$",  # HTTPS
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, config_content)
+            match = re.search(pattern, remote_url)
             if match:
-                return match.group(1)
+                project_path = match.group(1)
+                logger.debug(f"Parsed project path: {project_path}")
+                return project_path
 
+        logger.debug(f"Remote URL does not match GitLab instance {domain}")
         return None
-    except Exception:
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Git command timed out while getting remote URL at {git_root}")
+        return None
+    except FileNotFoundError:
+        logger.error("Git command not found - is git installed?")
+        return None
+    except Exception as e:
+        logger.debug(f"Error parsing git remote: {e}")
         return None
 
 

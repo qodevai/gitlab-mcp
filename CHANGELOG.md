@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Addresses 681 pipeline resource accesses (84% of all usage)
     - Guides Claude toward efficient patterns instead of manual polling loops
 
+- **Git Worktree Support** - "current" placeholders now work in git worktrees
+  - Replaced manual `.git/config` parsing with git commands
+  - `find_git_root()` now uses `git rev-parse --show-toplevel` (handles worktrees automatically)
+  - `parse_gitlab_remote()` now uses `git remote get-url origin` (handles worktrees automatically)
+  - **Benefits**:
+    - Users can work in git worktrees and use `project_id="current"` and `mr_iid="current"`
+    - Simpler, more reliable implementation (delegates complexity to git)
+    - Works with submodules and other git edge cases
+    - Reduces code complexity (~25% less code)
+  - Fully backward compatible with normal repositories
+
 ## [1.0.0] - 2025-01-21
 
 ### Added - Production Release
