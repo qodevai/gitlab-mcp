@@ -1778,6 +1778,9 @@ Current Repo/Branch (use project_id="current" and mr_iid="current"):
 - gitlab://projects/current/merge-requests/current/pipeline-jobs - Just pipeline jobs
 - gitlab://projects/current/merge-requests/ - All open MRs in current project
 - gitlab://projects/current/pipelines/ - Last 3 pipelines for current project (⚡ 50-100 tokens; for monitoring, use wait_for_pipeline tool instead)
+- gitlab://projects/current/pipelines/{pipeline_id} - Get specific pipeline details
+- gitlab://projects/current/pipelines/{pipeline_id}/jobs - Get jobs for a specific pipeline
+- gitlab://projects/current/jobs/{job_id}/log - Full job output/trace
 - gitlab://projects/current/releases/ - All releases in current project
 - gitlab://projects/current/releases/{tag_name} - Specific release by tag
 - gitlab://projects/current/variables/ - List all CI/CD variables (metadata only, values not exposed for security)
@@ -1828,6 +1831,9 @@ Examples:
 - "What releases exist?" → gitlab://projects/current/releases/
 - "Show me release v1.0.0" → gitlab://projects/current/releases/v1.0.0
 - "Create a release" → create_release("current", "v1.0.0", name="Version 1.0", description="Initial release")
+- "Show job 12123 logs" → gitlab://projects/current/jobs/12123/log
+- "Get pipeline 456 details" → gitlab://projects/current/pipelines/456
+- "List jobs in pipeline 456" → gitlab://projects/current/pipelines/456/jobs
 - "Show artifacts for job 12123" → gitlab://projects/current/jobs/12123/artifacts
 - "Read logs.txt from job 12123" → gitlab://projects/current/jobs/12123/artifacts/logs.txt
 - "Show last 50 lines of logs.txt" → gitlab://projects/current/jobs/12123/artifacts/logs.txt?lines=50

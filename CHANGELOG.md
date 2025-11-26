@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Document Missing MCP Resources** - Added 3 undocumented resources to server instructions
+  - `gitlab://projects/{project_id}/pipelines/{pipeline_id}` - Get specific pipeline details
+  - `gitlab://projects/{project_id}/pipelines/{pipeline_id}/jobs` - Get jobs for a specific pipeline
+  - `gitlab://projects/{project_id}/jobs/{job_id}/log` - Full job output/trace
+  - These resources existed in code but were not documented, causing Claude to fall back to curl commands
+
 ### Added
 - **CI/CD Variable Read Access** - Allow MCP clients to list and inspect CI/CD variables
   - `list_project_variables()` method in GitLabClient - List all variables (metadata only)
