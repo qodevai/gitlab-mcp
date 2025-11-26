@@ -2497,21 +2497,33 @@ async def project_job_artifacts(ctx: Context, project_id: str, job_id: str) -> s
 
 @mcp.resource("gitlab://projects/{project_id}/jobs/{job_id}/artifacts/{artifact_path}")
 async def project_job_artifact(
-    ctx: Context, project_id: str, job_id: str, artifact_path: str, lines: str = "10", offset: str = "0"
+    ctx: Context, project_id: str, job_id: str, artifact_path: str
 ) -> str:
     """Read a specific artifact file from a job (supports project_id="current")
 
     Args:
         project_id: Project ID or "current"
         job_id: Job ID
-        artifact_path: Path to artifact file (e.g., "logs.txt", "build/output.log")
-        lines: Number of lines to return from end of file (default: 10, use "all" for entire file)
-        offset: Starting line number (default: 0)
+        artifact_path: Path to artifact file (e.g., "logs.txt?lines=50", "build/output.log?lines=all")
+            Supports query params: ?lines=N (default 10), ?offset=M (default 0), ?lines=all
 
     Returns:
         For text files: Content with optional line range
         For binary files: Base64-encoded content with prefix
     """
+    from urllib.parse import parse_qs
+
+    # Parse query params from artifact_path (MCP includes them in path segment)
+    if "?" in artifact_path:
+        path_part, query_part = artifact_path.split("?", 1)
+        params = parse_qs(query_part)
+        lines = params.get("lines", ["10"])[0]
+        offset = params.get("offset", ["0"])[0]
+        artifact_path = path_part
+    else:
+        lines = "10"
+        offset = "0"
+
     resolved_id, _ = await resolve_project_id(ctx, project_id)
     if not resolved_id:
         return create_repo_not_found_error(gitlab_client.base_url)
@@ -2563,7 +2575,8 @@ async def project_job_artifact(
 
                 # Add metadata header if lines were truncated
                 if start_idx > 0 or end_idx < total_lines:
-                    header = f"[Showing lines {start_idx + 1}-{end_idx} of {total_lines} total lines]\n\n"
+                    header = f"[Showing lines {start_idx + 1}-{end_idx} of {total_lines} total lines]\n"
+                    header += "[Hint: Use ?lines=all for full file, or download_artifact tool for local access]\n\n"
                     result = header + result
 
                 return result

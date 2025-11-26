@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Artifact Query Parameters Now Work** - Fixed `?lines=N`, `?offset=M`, and `?lines=all` query params for artifact resources
+  - Previously, query parameters were silently ignored (MCP includes them in path segment)
+  - Now parses query params from artifact_path to enable line range selection
+  - Added truncation hint when output is limited: suggests `?lines=all` or `download_artifact` tool
+  - Example: `gitlab://projects/current/jobs/123/artifacts/logs.txt?lines=50` now returns last 50 lines
+
 - **Document Missing MCP Resources** - Added 3 undocumented resources to server instructions
   - `gitlab://projects/{project_id}/pipelines/{pipeline_id}` - Get specific pipeline details
   - `gitlab://projects/{project_id}/pipelines/{pipeline_id}/jobs` - Get jobs for a specific pipeline
