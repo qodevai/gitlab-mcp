@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - These resources existed in code but were not documented, causing Claude to fall back to curl commands
 
 ### Added
+- **Download Artifact Tool** - Download artifacts to local filesystem for shell analysis
+  - `download_artifact(project_id, job_id, artifact_path, destination=None)` MCP tool
+  - Downloads complete file (no truncation) unlike the resource which defaults to last 10 lines
+  - Default destination: temp file with auto-generated name
+  - Returns file path for use with shell tools (grep, wc, head, tail, awk, etc.)
+  - Supports `project_id="current"` for current repository
+  - Use case: Large log files that need regex search or line counting
+
 - **CI/CD Variable Read Access** - Allow MCP clients to list and inspect CI/CD variables
   - `list_project_variables()` method in GitLabClient - List all variables (metadata only)
   - `_sanitize_variable()` helper method - Strips sensitive values from API responses

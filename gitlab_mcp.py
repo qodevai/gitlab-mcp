@@ -1804,6 +1804,7 @@ TOOLS - Perform actions (all support "current"):
 - update_merge_request(project_id, mr_iid, title, description, ...) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
+- download_artifact(project_id, job_id, artifact_path, destination=None) - Download artifact to local filesystem for shell analysis (grep, wc, etc.). Returns file path. (supports project_id="current")
 
 Examples:
 - "Is this MR ready to merge?" → gitlab://projects/current/merge-requests/current/status
@@ -1839,6 +1840,8 @@ Examples:
 - "Show last 50 lines of logs.txt" → gitlab://projects/current/jobs/12123/artifacts/logs.txt?lines=50
 - "Show lines 100-150 of build.log" → gitlab://projects/current/jobs/12123/artifacts/build.log?offset=100&lines=50
 - "Show entire artifact file" → gitlab://projects/current/jobs/12123/artifacts/output.txt?lines=all
+- "Download artifact for grep/wc analysis" → download_artifact("current", 12123, "logs.txt")
+- "Download artifact to specific path" → download_artifact("current", 12123, "logs.txt", "/tmp/build.log")
 
 Token Efficiency:
 - Use /status for merge readiness checks (85-90% token savings vs separate calls)
@@ -3619,6 +3622,93 @@ async def create_release(
             "error": f"Unexpected error while creating release '{tag_name}' in project {project_id}: {str(e)}",
             "project_id": project_id,
             "tag_name": tag_name,
+        }
+
+
+@mcp.tool()
+async def download_artifact(
+    ctx: Context,
+    project_id: str,
+    job_id: int,
+    artifact_path: str,
+    destination: str | None = None,
+) -> dict[str, Any]:
+    """Download an artifact file to local filesystem for analysis with shell tools.
+
+    Downloads the complete artifact file (no truncation) to a local path.
+    Useful for large files that need analysis with grep, wc, awk, etc.
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        job_id: Job ID
+        artifact_path: Path to artifact within job (e.g., "logs.txt", "build/output.log")
+        destination: Local path to save file (optional, defaults to temp file)
+
+    Returns:
+        Result with success status and file path for shell tool access
+
+    Raises:
+        Error if download fails
+    """
+    import os
+    import tempfile
+
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        # Download artifact
+        content_bytes = gitlab_client.get_job_artifact(resolved_project_id, job_id, artifact_path)
+
+        # Determine destination path
+        if destination:
+            file_path = destination
+            # Ensure parent directory exists
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        else:
+            # Create temp file with appropriate suffix
+            suffix = os.path.splitext(artifact_path)[1] or ".txt"
+            base_name = os.path.basename(artifact_path).replace("?", "_")  # Handle query params in path
+            fd, file_path = tempfile.mkstemp(suffix=suffix, prefix=f"artifact_{base_name}_")
+            os.close(fd)
+
+        # Write content to file
+        with open(file_path, "wb") as f:
+            f.write(content_bytes)
+
+        return {
+            "success": True,
+            "message": f"Downloaded artifact to {file_path}",
+            "file_path": file_path,
+            "size_bytes": len(content_bytes),
+            "artifact_path": artifact_path,
+            "project_id": project_id,
+            "job_id": job_id,
+            "hint": "Use Read tool or Bash commands (grep, wc, head, tail) to analyze the file",
+        }
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {
+                "success": False,
+                "error": f"Artifact '{artifact_path}' not found in job {job_id}",
+                "project_id": project_id,
+                "job_id": job_id,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to download artifact (HTTP {e.response.status_code})",
+                "status_code": e.response.status_code,
+                "project_id": project_id,
+                "job_id": job_id,
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error downloading artifact: {str(e)}",
+            "project_id": project_id,
+            "job_id": job_id,
         }
 
 
