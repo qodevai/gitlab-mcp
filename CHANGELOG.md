@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive error handling with helpful suggestions
 
 ### Fixed
+- **"current" Resolution Broken** - Fix missing subprocess import that broke all "current" placeholder usage
+  - Commit a27a226 refactored `find_git_root()` and `parse_gitlab_remote()` to use subprocess.run() but forgot to import subprocess
+  - This caused `NameError: name 'subprocess' is not defined` for all tools using `project_id="current"` or `mr_iid="current"`
+  - Added subprocess to module-level imports and removed redundant local import from `get_current_branch()`
+
 - **Artifact Query Parameters Now Work** - Fixed `?lines=N`, `?offset=M`, and `?lines=all` query params for artifact resources
   - Previously, query parameters were silently ignored (MCP includes them in path segment)
   - Now parses query params from artifact_path to enable line range selection

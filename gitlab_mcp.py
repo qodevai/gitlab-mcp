@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -1845,8 +1846,6 @@ def get_current_branch(git_root: str) -> str | None:
         Current branch name or None if unable to determine
     """
     try:
-        import subprocess
-
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=git_root, capture_output=True, text=True, timeout=5
         )
