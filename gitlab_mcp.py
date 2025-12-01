@@ -1351,6 +1351,261 @@ class GitLabClient:
             logger.exception(f"Unexpected error while deleting release '{tag_name}' in project {project_id}: {e}")
             raise
 
+    # Issue Management Methods
+
+    def get_issues(
+        self,
+        project_id: str,
+        state: str = "opened",
+        labels: str | None = None,
+        assignee_id: int | None = None,
+        milestone: str | None = None,
+        per_page: int = 20,
+        max_pages: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get issues for a project with optional filters
+
+        Args:
+            project_id: Project ID or path
+            state: Issue state - "opened" (default), "closed", or "all"
+            labels: Comma-separated label names to filter by
+            assignee_id: Filter by assignee user ID
+            milestone: Filter by milestone title
+            per_page: Results per page (default: 20)
+            max_pages: Maximum pages to fetch (default: 10)
+
+        Returns:
+            List of issue data dictionaries
+
+        Raises:
+            httpx.HTTPStatusError: If API request fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+        params: dict[str, Any] = {"state": state}
+
+        if labels:
+            params["labels"] = labels
+        if assignee_id is not None:
+            params["assignee_id"] = assignee_id
+        if milestone:
+            params["milestone"] = milestone
+
+        return self.get_paginated(
+            f"/projects/{encoded_id}/issues",
+            params=params,
+            per_page=per_page,
+            max_pages=max_pages,
+        )
+
+    def get_issue(self, project_id: str, issue_iid: int) -> dict[str, Any]:
+        """Get a specific issue by IID
+
+        Args:
+            project_id: Project ID or path
+            issue_iid: Issue IID (the #number)
+
+        Returns:
+            Issue data dictionary
+
+        Raises:
+            httpx.HTTPStatusError: If issue not found or request fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+        return self.get(f"/projects/{encoded_id}/issues/{issue_iid}")
+
+    def create_issue(
+        self,
+        project_id: str,
+        title: str,
+        description: str | None = None,
+        labels: str | None = None,
+        assignee_ids: list[int] | None = None,
+        milestone_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Create a new issue
+
+        Args:
+            project_id: Project ID or path
+            title: Issue title (required)
+            description: Issue description (optional, supports Markdown)
+            labels: Comma-separated label names
+            assignee_ids: List of user IDs to assign
+            milestone_id: Milestone ID to assign
+
+        Returns:
+            Created issue data
+
+        Raises:
+            httpx.HTTPStatusError: If creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {"title": title}
+
+        if description:
+            data["description"] = description
+        if labels:
+            data["labels"] = labels
+        if assignee_ids:
+            data["assignee_ids"] = assignee_ids
+        if milestone_id is not None:
+            data["milestone_id"] = milestone_id
+
+        try:
+            logger.info(f"Creating issue '{title}' in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/issues",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully created issue in project {project_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to create issue in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while creating issue in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while creating issue in project {project_id}: {e}")
+            raise
+
+    def update_issue(
+        self,
+        project_id: str,
+        issue_iid: int,
+        title: str | None = None,
+        description: str | None = None,
+        state_event: str | None = None,
+        labels: str | None = None,
+        assignee_ids: list[int] | None = None,
+        milestone_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Update an existing issue
+
+        Args:
+            project_id: Project ID or path
+            issue_iid: Issue IID
+            title: New title (optional)
+            description: New description (optional)
+            state_event: "close" to close, "reopen" to reopen (optional)
+            labels: New comma-separated label names (optional)
+            assignee_ids: New list of assignee IDs (optional)
+            milestone_id: New milestone ID (optional)
+
+        Returns:
+            Updated issue data
+
+        Raises:
+            httpx.HTTPStatusError: If update fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {}
+
+        if title:
+            data["title"] = title
+        if description is not None:
+            data["description"] = description
+        if state_event:
+            data["state_event"] = state_event
+        if labels is not None:
+            data["labels"] = labels
+        if assignee_ids is not None:
+            data["assignee_ids"] = assignee_ids
+        if milestone_id is not None:
+            data["milestone_id"] = milestone_id
+
+        try:
+            logger.info(f"Updating issue #{issue_iid} in project {project_id}")
+            response = self.client.put(
+                f"/projects/{encoded_id}/issues/{issue_iid}",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully updated issue #{issue_iid} in project {project_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to update issue #{issue_iid} in project {project_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while updating issue #{issue_iid} in project {project_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while updating issue #{issue_iid} in project {project_id}: {e}")
+            raise
+
+    def close_issue(self, project_id: str, issue_iid: int) -> dict[str, Any]:
+        """Close an issue (convenience wrapper for update_issue)
+
+        Args:
+            project_id: Project ID or path
+            issue_iid: Issue IID
+
+        Returns:
+            Updated issue data
+
+        Raises:
+            httpx.HTTPStatusError: If close fails
+        """
+        return self.update_issue(project_id, issue_iid, state_event="close")
+
+    def get_issue_notes(self, project_id: str, issue_iid: int) -> list[dict[str, Any]]:
+        """Get comments/notes on an issue
+
+        Args:
+            project_id: Project ID or path
+            issue_iid: Issue IID
+
+        Returns:
+            List of note data dictionaries
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+        return self.get_paginated(f"/projects/{encoded_id}/issues/{issue_iid}/notes")
+
+    def create_issue_note(self, project_id: str, issue_iid: int, body: str) -> dict[str, Any]:
+        """Create a comment/note on an issue
+
+        Args:
+            project_id: Project ID or path
+            issue_iid: Issue IID
+            body: Comment text (supports Markdown)
+
+        Returns:
+            Created note data
+
+        Raises:
+            httpx.HTTPStatusError: If creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data = {"body": body}
+
+        try:
+            logger.info(f"Creating note on issue #{issue_iid} in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/issues/{issue_iid}/notes",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully created note on issue #{issue_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to create note on issue #{issue_iid}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while creating note on issue #{issue_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while creating note on issue #{issue_iid}: {e}")
+            raise
+
 
 # Helper functions
 def create_repo_not_found_error(gitlab_base_url: str) -> dict[str, str]:
@@ -1787,6 +2042,9 @@ Current Repo/Branch (use project_id="current" and mr_iid="current"):
 - gitlab://projects/current/variables/{key} - Get specific CI/CD variable metadata
 - gitlab://projects/current/jobs/{job_id}/artifacts - List all artifacts for a job
 - gitlab://projects/current/jobs/{job_id}/artifacts/{artifact_path} - Read specific artifact file (supports ?lines=N&offset=M)
+- gitlab://projects/current/issues/ - List open issues (up to 20 most recent)
+- gitlab://projects/current/issues/{issue_iid} - Specific issue details
+- gitlab://projects/current/issues/{issue_iid}/notes - Issue comments
 
 Specific Project/MR (use numeric ID or URL-encoded path):
 - gitlab://projects/qodev%2Fhandbook/merge-requests/20 - Comprehensive MR overview
@@ -1794,6 +2052,9 @@ Specific Project/MR (use numeric ID or URL-encoded path):
 - gitlab://projects/qodev%2Fhandbook/merge-requests/20/changes - Granular access to changes only
 - gitlab://projects/qodev%2Fhandbook/releases/ - All releases in specific project
 - gitlab://projects/123/releases/v1.0.0 - Specific release in specific project
+- gitlab://projects/123/issues/ - List issues in specific project
+- gitlab://projects/qodev%2Fhandbook/issues/42 - Specific issue in specific project
+- gitlab://projects/123/issues/42/notes - Issue comments in specific project
 
 TOOLS - Perform actions (all support "current"):
 - create_release(project_id, tag_name, name, description, ref, ...) - Create a new release (supports project_id="current", auto-detects ref from current branch)
@@ -1805,6 +2066,10 @@ TOOLS - Perform actions (all support "current"):
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 - download_artifact(project_id, job_id, artifact_path, destination=None) - Download artifact to local filesystem for shell analysis (grep, wc, etc.). Returns file path. (supports project_id="current")
+- create_issue(project_id, title, description, labels, assignee_ids) - Create a new issue (supports project_id="current")
+- update_issue(project_id, issue_iid, title, description, labels, assignee_ids, state_event) - Update issue (supports project_id="current")
+- close_issue(project_id, issue_iid) - Close an issue (supports project_id="current")
+- comment_on_issue(project_id, issue_iid, comment) - Leave a comment on an issue (supports project_id="current")
 
 Examples:
 - "Is this MR ready to merge?" → gitlab://projects/current/merge-requests/current/status
@@ -1842,6 +2107,13 @@ Examples:
 - "Show entire artifact file" → gitlab://projects/current/jobs/12123/artifacts/output.txt?lines=all
 - "Download artifact for grep/wc analysis" → download_artifact("current", 12123, "logs.txt")
 - "Download artifact to specific path" → download_artifact("current", 12123, "logs.txt", "/tmp/build.log")
+- "List issues in my project" → gitlab://projects/current/issues/
+- "Show me issue #42" → gitlab://projects/current/issues/42
+- "What comments are on issue #42?" → gitlab://projects/current/issues/42/notes
+- "Create an issue titled 'Bug in login'" → create_issue("current", "Bug in login", "Users can't log in...")
+- "Close issue #42" → close_issue("current", 42)
+- "Comment on issue #42" → comment_on_issue("current", 42, "Fixed in latest commit")
+- "Update issue #42 to add urgent label" → update_issue("current", 42, labels="bug,urgent")
 
 Token Efficiency:
 - Use /status for merge readiness checks (85-90% token savings vs separate calls)
@@ -1987,6 +2259,24 @@ def gitlab_help() -> dict[str, Any]:
                 "description": "Details of a specific release by tag name",
                 "queries": ["Show me release v1.0.0", "What's in the latest release?"],
             },
+            "project_issues": {
+                "uri": "gitlab://projects/{project_id}/issues/",
+                "examples": ["gitlab://projects/current/issues/"],
+                "description": "List open issues in a project (up to 20 most recent)",
+                "queries": ["What issues are open?", "List all issues", "Show me issues"],
+            },
+            "specific_issue": {
+                "uri": "gitlab://projects/{project_id}/issues/{issue_iid}",
+                "examples": ["gitlab://projects/current/issues/42"],
+                "description": "Details of a specific issue by IID",
+                "queries": ["Show me issue #42", "What's issue #42 about?"],
+            },
+            "issue_notes": {
+                "uri": "gitlab://projects/{project_id}/issues/{issue_iid}/notes",
+                "examples": ["gitlab://projects/current/issues/42/notes"],
+                "description": "Comments/notes on a specific issue",
+                "queries": ["What comments are on issue #42?", "Show issue comments"],
+            },
         },
         "tools": {
             "create_release": {
@@ -2033,6 +2323,44 @@ def gitlab_help() -> dict[str, Any]:
                     "set_project_ci_variable('qodev/handbook', 'ENV', 'prod', protected=True, masked=True)",
                 ],
             },
+            "create_issue": {
+                "signature": "create_issue(project_id, title, description, labels, assignee_ids)",
+                "supports_current": True,
+                "description": "Create a new issue in a project",
+                "examples": [
+                    "create_issue('current', 'Bug in login', 'Users cannot log in')",
+                    "create_issue('current', 'New feature request', 'Add dark mode', labels='enhancement')",
+                    "create_issue('qodev/handbook', 'Fix typo', assignee_ids=[123])",
+                ],
+            },
+            "update_issue": {
+                "signature": "update_issue(project_id, issue_iid, title, description, labels, assignee_ids, state_event)",
+                "supports_current": True,
+                "description": "Update an existing issue",
+                "examples": [
+                    "update_issue('current', 42, title='Updated title')",
+                    "update_issue('current', 42, labels='bug,urgent')",
+                    "update_issue('current', 42, state_event='close')",
+                ],
+            },
+            "close_issue": {
+                "signature": "close_issue(project_id, issue_iid)",
+                "supports_current": True,
+                "description": "Close an issue",
+                "examples": [
+                    "close_issue('current', 42)",
+                    "close_issue('qodev/handbook', 15)",
+                ],
+            },
+            "comment_on_issue": {
+                "signature": "comment_on_issue(project_id, issue_iid, comment)",
+                "supports_current": True,
+                "description": "Leave a comment on an issue",
+                "examples": [
+                    "comment_on_issue('current', 42, 'Fixed in latest commit')",
+                    "comment_on_issue('qodev/handbook', 15, 'Working on this now')",
+                ],
+            },
         },
         "usage": "Use ReadMcpResourceTool with server='gitlab' and the appropriate URI",
         "token_efficiency_tip": "Use /status for merge readiness checks (85-90% savings). Use granular resources (/discussions, /changes, etc.) when you only need specific data instead of the comprehensive MR overview",
@@ -2049,6 +2377,12 @@ def gitlab_help() -> dict[str, Any]:
             "What releases exist? → gitlab://projects/current/releases/",
             "Show me release v1.0.0 → gitlab://projects/current/releases/v1.0.0",
             "Create a release → create_release('current', 'v1.0.0', name='Version 1.0', description='Release notes')",
+            "List issues in my project → gitlab://projects/current/issues/",
+            "Show me issue #42 → gitlab://projects/current/issues/42",
+            "What comments are on issue #42? → gitlab://projects/current/issues/42/notes",
+            "Create an issue → create_issue('current', 'Bug in login', 'Description here')",
+            "Close issue #42 → close_issue('current', 42)",
+            "Comment on issue #42 → comment_on_issue('current', 42, 'Fixed!')",
         ],
     }
 
@@ -2658,6 +2992,84 @@ async def project_variable(ctx: Context, project_id: str, key: str) -> dict[str,
         return {"error": f"Variable '{key}' not found in project", "key": key}
 
     return gitlab_client._sanitize_variable(var)
+
+
+# Issue Resources
+@mcp.resource("gitlab://projects/{project_id}/issues/")
+async def project_issues(ctx: Context, project_id: str) -> list[dict[str, Any]] | dict[str, Any]:
+    """List open issues in a project (supports project_id="current")
+
+    Returns up to 20 most recently updated open issues.
+    For filtering by labels/assignees/milestone, use the GitLab API parameters via tools.
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    try:
+        issues = gitlab_client.get_issues(resolved_id, state="opened")
+        return issues
+    except Exception as e:
+        logger.error(f"Error fetching issues for project {project_id}: {e}")
+        return {"error": f"Failed to fetch issues: {str(e)}"}
+
+
+@mcp.resource("gitlab://projects/{project_id}/issues/{issue_iid}")
+async def project_issue(ctx: Context, project_id: str, issue_iid: str) -> dict[str, Any]:
+    """Get a specific issue by IID (supports project_id="current")
+
+    Returns issue details including title, description, labels, assignees, state, milestone.
+    For issue comments, use the separate /notes resource for minimal token usage.
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    # Validate issue_iid is numeric
+    try:
+        iid = int(issue_iid)
+    except ValueError:
+        return {"error": f"Invalid issue IID '{issue_iid}' - must be a number"}
+
+    try:
+        issue = gitlab_client.get_issue(resolved_id, iid)
+        return issue
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {"error": f"Issue #{iid} not found in project"}
+        return {"error": f"Failed to fetch issue #{iid}: {e.response.status_code}"}
+    except Exception as e:
+        logger.error(f"Error fetching issue #{iid} for project {project_id}: {e}")
+        return {"error": f"Failed to fetch issue: {str(e)}"}
+
+
+@mcp.resource("gitlab://projects/{project_id}/issues/{issue_iid}/notes")
+async def project_issue_notes(ctx: Context, project_id: str, issue_iid: str) -> list[dict[str, Any]] | dict[str, Any]:
+    """Get comments/notes on an issue (supports project_id="current")
+
+    Returns all comments on the issue in chronological order.
+    Use this granular resource to minimize token usage when you only need comments.
+    """
+    resolved_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_id:
+        return create_repo_not_found_error(gitlab_client.base_url)
+
+    # Validate issue_iid is numeric
+    try:
+        iid = int(issue_iid)
+    except ValueError:
+        return {"error": f"Invalid issue IID '{issue_iid}' - must be a number"}
+
+    try:
+        notes = gitlab_client.get_issue_notes(resolved_id, iid)
+        return notes
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {"error": f"Issue #{iid} not found in project"}
+        return {"error": f"Failed to fetch notes for issue #{iid}: {e.response.status_code}"}
+    except Exception as e:
+        logger.error(f"Error fetching notes for issue #{iid} in project {project_id}: {e}")
+        return {"error": f"Failed to fetch notes: {str(e)}"}
 
 
 # Tools
@@ -3487,6 +3899,233 @@ async def create_merge_request(
             "project_id": project_id,
             "source_branch": source_branch,
             "target_branch": target_branch,
+        }
+
+
+@mcp.tool()
+async def create_issue(
+    ctx: Context,
+    project_id: str,
+    title: str,
+    description: str | None = None,
+    labels: str | None = None,
+    assignee_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    """Create a new issue in a project
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        title: Issue title (required)
+        description: Issue description (optional, supports Markdown)
+        labels: Comma-separated label names (optional, e.g., "bug,urgent")
+        assignee_ids: List of user IDs to assign (optional)
+
+    Returns:
+        Result with success status and created issue details including web URL
+
+    Raises:
+        Error if issue creation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        issue = gitlab_client.create_issue(
+            project_id=resolved_project_id,
+            title=title,
+            description=description,
+            labels=labels,
+            assignee_ids=assignee_ids,
+        )
+        return {
+            "success": True,
+            "message": f"Successfully created issue #{issue.get('iid')}: {title}",
+            "issue": issue,
+            "issue_url": issue.get("web_url"),
+            "project_id": project_id,
+            "issue_iid": issue.get("iid"),
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to create issue: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error creating issue: {str(e)}",
+            "project_id": project_id,
+        }
+
+
+@mcp.tool()
+async def update_issue(
+    ctx: Context,
+    project_id: str,
+    issue_iid: int,
+    title: str | None = None,
+    description: str | None = None,
+    labels: str | None = None,
+    assignee_ids: list[int] | None = None,
+    state_event: str | None = None,
+) -> dict[str, Any]:
+    """Update an existing issue's title, description, or other properties
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        issue_iid: Issue IID (the #number)
+        title: New issue title (optional)
+        description: New issue description (optional)
+        labels: New comma-separated label names (optional)
+        assignee_ids: New list of assignee user IDs (optional)
+        state_event: Change state: "close" or "reopen" (optional)
+
+    Returns:
+        Result with success status and updated issue details
+
+    Raises:
+        Error if update fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        issue = gitlab_client.update_issue(
+            project_id=resolved_project_id,
+            issue_iid=issue_iid,
+            title=title,
+            description=description,
+            state_event=state_event,
+            labels=labels,
+            assignee_ids=assignee_ids,
+        )
+        return {
+            "success": True,
+            "message": f"Successfully updated issue #{issue_iid}",
+            "issue": issue,
+            "issue_url": issue.get("web_url"),
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to update issue #{issue_iid}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error updating issue #{issue_iid}: {str(e)}",
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+
+
+@mcp.tool()
+async def close_issue(ctx: Context, project_id: str, issue_iid: int) -> dict[str, Any]:
+    """Close a specific issue by project and issue IID
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        issue_iid: Issue IID (the #number)
+
+    Returns:
+        Result of close operation with updated issue details
+
+    Raises:
+        Error if close operation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        issue = gitlab_client.close_issue(
+            project_id=resolved_project_id,
+            issue_iid=issue_iid,
+        )
+        return {
+            "success": True,
+            "message": f"Successfully closed issue #{issue_iid}",
+            "issue": issue,
+            "issue_url": issue.get("web_url"),
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to close issue #{issue_iid}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error closing issue #{issue_iid}: {str(e)}",
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+
+
+@mcp.tool()
+async def comment_on_issue(ctx: Context, project_id: str, issue_iid: int, comment: str) -> dict[str, Any]:
+    """Leave a comment on a specific issue by project and issue IID
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        issue_iid: Issue IID (the #number)
+        comment: Comment text to post (supports Markdown formatting)
+
+    Returns:
+        Result of comment operation with created note details
+
+    Raises:
+        Error if comment creation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        note = gitlab_client.create_issue_note(
+            project_id=resolved_project_id,
+            issue_iid=issue_iid,
+            body=comment,
+        )
+        return {
+            "success": True,
+            "message": f"Successfully posted comment on issue #{issue_iid}",
+            "note": note,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to comment on issue #{issue_iid}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error commenting on issue #{issue_iid}: {str(e)}",
+            "project_id": project_id,
+            "issue_iid": issue_iid,
         }
 
 

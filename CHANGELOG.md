@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Issue Management Support** - Create, view, update, and comment on GitLab issues
+  - `get_issues()` method in GitLabClient - List issues with filters (state, labels, assignees, milestone)
+  - `get_issue()` method in GitLabClient - Get specific issue by IID
+  - `create_issue()` method in GitLabClient - Create new issues with labels and assignees
+  - `update_issue()` method in GitLabClient - Update issue title, description, labels, assignees, state
+  - `close_issue()` method in GitLabClient - Close issues (convenience wrapper)
+  - `get_issue_notes()` method in GitLabClient - Get comments/notes on issues
+  - `create_issue_note()` method in GitLabClient - Add comments to issues
+  - `gitlab://projects/{project_id}/issues/` MCP resource - List open issues
+  - `gitlab://projects/{project_id}/issues/{issue_iid}` MCP resource - Get specific issue
+  - `gitlab://projects/{project_id}/issues/{issue_iid}/notes` MCP resource - Get issue comments
+  - `create_issue()` MCP tool - Create issues with support for `project_id="current"`
+  - `update_issue()` MCP tool - Update issues with support for `project_id="current"`
+  - `close_issue()` MCP tool - Close issues with support for `project_id="current"`
+  - `comment_on_issue()` MCP tool - Comment on issues with support for `project_id="current"`
+  - Supports `project_id="current"` for current repository
+  - Granular resources for minimal token usage
+  - Full Markdown support in issue descriptions and comments
+  - Comprehensive error handling with helpful suggestions
+
 ### Fixed
 - **Artifact Query Parameters Now Work** - Fixed `?lines=N`, `?offset=M`, and `?lines=all` query params for artifact resources
   - Previously, query parameters were silently ignored (MCP includes them in path segment)
