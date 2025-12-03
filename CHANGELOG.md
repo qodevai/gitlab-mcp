@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive error handling with helpful suggestions
 
 ### Fixed
+- **MR Squash Settings Not Applied** - Workaround for GitLab API bug that ignores project squash settings
+  - GitLab API doesn't respect project's "Squash commits" setting when creating MRs via API
+  - See upstream bug: https://gitlab.com/gitlab-org/gitlab/-/issues/385301
+  - `create_merge_request` now fetches project settings and applies squash default automatically
+  - Supports all project squash options: "never", "default_off" (Allow), "default_on" (Encourage), "always" (Require)
+  - TODO: Remove workaround when GitLab fixes upstream bug
+
 - **"current" Resolution Broken** - Fix missing subprocess import that broke all "current" placeholder usage
   - Commit a27a226 refactored `find_git_root()` and `parse_gitlab_remote()` to use subprocess.run() but forgot to import subprocess
   - This caused `NameError: name 'subprocess' is not defined` for all tools using `project_id="current"` or `mr_iid="current"`
