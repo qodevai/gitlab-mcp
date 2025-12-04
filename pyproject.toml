@@ -34,11 +34,14 @@ Issues = "https://github.com/janscheffler/gitlab-mcp/issues"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    "pytest~=8.0.0",
-    "mypy~=1.13.0",
-    "ruff~=0.8.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
 ]
 
 [tool.ruff]
@@ -77,3 +80,27 @@ warn_unused_ignores = true
 warn_no_return = true
 check_untyped_defs = true
 strict_optional = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (may require GitLab access)",
+]
+
+[tool.coverage.run]
+source = ["gitlab_mcp"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.typos.default]
+extend-ignore-re = ["[0-9a-zA-Z]{40,}"]
+
+[tool.typos.files]
+extend-exclude = ["uv.lock", "*.log"]

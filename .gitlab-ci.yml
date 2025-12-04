@@ -1,0 +1,38 @@
+stages:
+  - lint
+  - test
+
+default:
+  image: python:3.11-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git
+    - pip install uv
+    - uv sync --all-extras
+
+lint:
+  stage: lint
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+
+typecheck:
+  stage: lint
+  script:
+    - uv run mypy gitlab_mcp.py
+
+typos:
+  stage: lint
+  script:
+    - uvx typos
+
+test:unit:
+  stage: test
+  script:
+    - uv run pytest tests/unit --cov=gitlab_mcp --cov-report=term
+
+test:integration:
+  stage: test
+  script:
+    - uv run pytest tests/integration -v
+  when: manual
+  allow_failure: true

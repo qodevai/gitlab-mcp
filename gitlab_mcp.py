@@ -1,10 +1,9 @@
-import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -199,7 +198,9 @@ class GitLabClient:
         """
         encoded_id = self._encode_project_id(project_id)
         params = {"ref": ref} if ref else {}
-        return self.get_paginated(f"/projects/{encoded_id}/pipelines", params=params, per_page=per_page, max_pages=max_pages)
+        return self.get_paginated(
+            f"/projects/{encoded_id}/pipelines", params=params, per_page=per_page, max_pages=max_pages
+        )
 
     def get_pipeline(self, project_id: str, pipeline_id: int) -> dict[str, Any]:
         """Get a specific pipeline"""
@@ -294,9 +295,7 @@ class GitLabClient:
             # Return raw bytes for artifact content
             return response.content
         except httpx.HTTPStatusError as e:
-            logger.error(
-                f"GitLab API error for GET job {job_id} artifact {artifact_path}: {e.response.status_code}"
-            )
+            logger.error(f"GitLab API error for GET job {job_id} artifact {artifact_path}: {e.response.status_code}")
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error for GET job {job_id} artifact {artifact_path}: {e}")
@@ -325,10 +324,14 @@ class GitLabClient:
                     # Get last 10 non-empty lines
                     last_lines = [line for line in log_lines if line.strip()][-10:]
                     job_copy["failure_log_tail"] = "\n".join(last_lines)
-                    job_copy["log_note"] = f"Showing last 10 lines. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+                    job_copy["log_note"] = (
+                        f"Showing last 10 lines. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to fetch log for job {job['id']}: {e}")
-                    job_copy["log_note"] = f"Failed to fetch log. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+                    job_copy["log_note"] = (
+                        f"Failed to fetch log. Full log: gitlab://projects/{project_id}/jobs/{job['id']}/log"
+                    )
             enriched_jobs.append(job_copy)
         return enriched_jobs
 
@@ -428,9 +431,7 @@ class GitLabClient:
             logger.exception(f"Unexpected error while creating note on MR !{mr_iid}: {e}")
             raise
 
-    def reply_to_discussion(
-        self, project_id: str, mr_iid: int, discussion_id: str, body: str
-    ) -> dict[str, Any]:
+    def reply_to_discussion(self, project_id: str, mr_iid: int, discussion_id: str, body: str) -> dict[str, Any]:
         """Reply to an existing discussion thread on a merge request
 
         Args:
@@ -471,9 +472,7 @@ class GitLabClient:
             logger.exception(f"Unexpected error while replying to discussion {discussion_id} on MR !{mr_iid}: {e}")
             raise
 
-    def resolve_discussion(
-        self, project_id: str, mr_iid: int, discussion_id: str, resolved: bool
-    ) -> dict[str, Any]:
+    def resolve_discussion(self, project_id: str, mr_iid: int, discussion_id: str, resolved: bool) -> dict[str, Any]:
         """Resolve or unresolve a discussion thread on a merge request
 
         Args:
@@ -662,7 +661,7 @@ class GitLabClient:
                 request=e.request,
                 response=e.response,
             )
-            raise error
+            raise error from e
         except httpx.RequestError as e:
             logger.error(f"Network error while merging MR !{mr_iid}: {e}")
             raise
@@ -698,9 +697,7 @@ class GitLabClient:
             return response.json()
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(
-                f"Failed to close MR !{mr_iid}: {e.response.status_code} - {error_detail}"
-            )
+            logger.error(f"Failed to close MR !{mr_iid}: {e.response.status_code} - {error_detail}")
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while closing MR !{mr_iid}: {e}")
@@ -770,9 +767,7 @@ class GitLabClient:
             return response.json()
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(
-                f"Failed to update MR !{mr_iid}: {e.response.status_code} - {error_detail}"
-            )
+            logger.error(f"Failed to update MR !{mr_iid}: {e.response.status_code} - {error_detail}")
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while updating MR !{mr_iid}: {e}")
@@ -804,7 +799,6 @@ class GitLabClient:
         Raises:
             httpx.HTTPStatusError: If API calls fail
         """
-        encoded_id = self._encode_project_id(project_id)
         start_time = time.time()
         checks = 0
 
@@ -825,10 +819,7 @@ class GitLabClient:
                 pipeline = self.get_pipeline(project_id, pipeline_id)
                 status = pipeline.get("status")
 
-                logger.debug(
-                    f"Check #{checks}: Pipeline {pipeline_id} status = {status} "
-                    f"(elapsed: {elapsed:.1f}s)"
-                )
+                logger.debug(f"Check #{checks}: Pipeline {pipeline_id} status = {status} " f"(elapsed: {elapsed:.1f}s)")
 
                 # Check if pipeline has completed
                 if status in ["success", "failed", "canceled", "skipped"]:
@@ -842,10 +833,7 @@ class GitLabClient:
                 # Check timeout
                 if elapsed > timeout_seconds:
                     final_status = "timeout"
-                    logger.warning(
-                        f"Pipeline {pipeline_id} timed out after {elapsed:.1f}s "
-                        f"(status was '{status}')"
-                    )
+                    logger.warning(f"Pipeline {pipeline_id} timed out after {elapsed:.1f}s " f"(status was '{status}')")
                     break
 
                 # Wait before next check
@@ -853,9 +841,7 @@ class GitLabClient:
 
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(
-                f"Failed to check pipeline {pipeline_id}: {e.response.status_code} - {error_detail}"
-            )
+            logger.error(f"Failed to check pipeline {pipeline_id}: {e.response.status_code} - {error_detail}")
             raise
         except Exception as e:
             logger.exception(f"Unexpected error while waiting for pipeline {pipeline_id}: {e}")
@@ -901,9 +887,7 @@ class GitLabClient:
                             lines = log.strip().split("\n")
                             job_detail["last_log_lines"] = "\n".join(lines[-10:])
                         except Exception as log_error:
-                            logger.warning(
-                                f"Could not fetch log for job {job['id']}: {log_error}"
-                            )
+                            logger.warning(f"Could not fetch log for job {job['id']}: {log_error}")
                             job_detail["last_log_lines"] = "(log unavailable)"
 
                         failed_job_details.append(job_detail)
@@ -1247,7 +1231,9 @@ class GitLabClient:
             return response.json()
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(f"Failed to create release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            logger.error(
+                f"Failed to create release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while creating release '{tag_name}' in project {project_id}: {e}")
@@ -1310,7 +1296,9 @@ class GitLabClient:
             return response.json()
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(f"Failed to update release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            logger.error(
+                f"Failed to update release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while updating release '{tag_name}' in project {project_id}: {e}")
@@ -1343,7 +1331,9 @@ class GitLabClient:
             logger.info(f"Successfully deleted release '{tag_name}' in project {project_id} (tag preserved)")
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(f"Failed to delete release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}")
+            logger.error(
+                f"Failed to delete release '{tag_name}' in project {project_id}: {e.response.status_code} - {error_detail}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while deleting release '{tag_name}' in project {project_id}: {e}")
@@ -1529,7 +1519,9 @@ class GitLabClient:
             return response.json()
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text[:500] if e.response.text else "No error details"
-            logger.error(f"Failed to update issue #{issue_iid} in project {project_id}: {e.response.status_code} - {error_detail}")
+            logger.error(
+                f"Failed to update issue #{issue_iid} in project {project_id}: {e.response.status_code} - {error_detail}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Network error while updating issue #{issue_iid} in project {project_id}: {e}")
@@ -2168,8 +2160,19 @@ def gitlab_help() -> dict[str, Any]:
                     "gitlab://projects/qodev%2Fhandbook/merge-requests/20/status",
                 ],
                 "description": "⭐ RECOMMENDED: Lightweight merge readiness check (85-90% token savings vs separate calls)",
-                "queries": ["Is this MR ready to merge?", "What's blocking my MR?", "Can I merge this?", "Check MR status"],
-                "includes": ["ready_to_merge boolean", "blockers array", "pipeline status with failed job IDs", "unresolved discussion IDs", "approval status"],
+                "queries": [
+                    "Is this MR ready to merge?",
+                    "What's blocking my MR?",
+                    "Can I merge this?",
+                    "Check MR status",
+                ],
+                "includes": [
+                    "ready_to_merge boolean",
+                    "blockers array",
+                    "pipeline status with failed job IDs",
+                    "unresolved discussion IDs",
+                    "approval status",
+                ],
             },
             "comprehensive_mr": {
                 "uri": "gitlab://projects/{project_id}/merge-requests/{mr_iid}",
@@ -2593,7 +2596,10 @@ async def project_merge_request_approvals(ctx: Context, project_id: str, mr_iid:
     try:
         return gitlab_client.get_mr_approvals(resolved_project_id, resolved_mr_iid)
     except Exception as e:
-        return {"error": f"Failed to fetch approvals: {str(e)}", "note": "Approvals may not be available in this GitLab edition"}
+        return {
+            "error": f"Failed to fetch approvals: {str(e)}",
+            "note": "Approvals may not be available in this GitLab edition",
+        }
 
 
 @mcp.resource("gitlab://projects/{project_id}/merge-requests/{mr_iid}/pipeline-jobs")
@@ -2710,16 +2716,17 @@ async def project_merge_request_status(ctx: Context, project_id: str, mr_iid: st
             blockers.append("pipeline_running")
         if len(unresolved_discussions) > 0:
             blockers.append("unresolved_discussions")
-        if approvals_data and not approvals_data.get("note"):
-            if not approvals_data.get("approved"):
-                blockers.append("approvals_required")
+        if approvals_data and not approvals_data.get("note") and not approvals_data.get("approved"):
+            blockers.append("approvals_required")
         if mr.get("merge_status") == "cannot_be_merged":
             blockers.append("merge_conflicts")
         if mr.get("draft") or mr.get("work_in_progress"):
             blockers.append("draft")
 
         ready_to_merge = (
-            len(blockers) == 0 and mr.get("state") == "opened" and (not latest_pipeline or latest_pipeline["status"] == "success")
+            len(blockers) == 0
+            and mr.get("state") == "opened"
+            and (not latest_pipeline or latest_pipeline["status"] == "success")
         )
 
         return {
@@ -2832,9 +2839,7 @@ async def project_job_artifacts(ctx: Context, project_id: str, job_id: str) -> s
 
 
 @mcp.resource("gitlab://projects/{project_id}/jobs/{job_id}/artifacts/{artifact_path}")
-async def project_job_artifact(
-    ctx: Context, project_id: str, job_id: str, artifact_path: str
-) -> str:
+async def project_job_artifact(ctx: Context, project_id: str, job_id: str, artifact_path: str) -> str:
     """Read a specific artifact file from a job (supports project_id="current")
 
     Args:
@@ -2862,7 +2867,7 @@ async def project_job_artifact(
 
     resolved_id, _ = await resolve_project_id(ctx, project_id)
     if not resolved_id:
-        return create_repo_not_found_error(gitlab_client.base_url)
+        return json.dumps(create_repo_not_found_error(gitlab_client.base_url))
 
     try:
         import base64
@@ -3348,7 +3353,9 @@ async def merge_merge_request(
         if e.response.status_code == 405 or e.response.status_code == 406:
             # Method Not Allowed or Not Acceptable - usually means merge is blocked
             if pipeline_status == "running":
-                helpful_message = f"Cannot merge MR !{resolved_mr_iid}: Pipeline is still running (status: {pipeline_status})"
+                helpful_message = (
+                    f"Cannot merge MR !{resolved_mr_iid}: Pipeline is still running (status: {pipeline_status})"
+                )
                 suggestions.append(
                     "Wait for the pipeline to complete, or use merge_when_pipeline_succeeds=True to queue the merge"
                 )
@@ -3627,6 +3634,11 @@ async def wait_for_pipeline(
             }
     else:
         # Use provided pipeline_id
+        if pipeline_id is None:
+            return {
+                "success": False,
+                "error": "pipeline_id is required when mr_iid is not provided",
+            }
         try:
             resolved_pipeline_id = int(pipeline_id)
         except (ValueError, TypeError):
@@ -3899,7 +3911,7 @@ async def create_merge_request(
             suggestions.append("Verify that source branch differs from target branch")
         elif e.response.status_code == 404:
             # Not found - project or branch doesn't exist
-            helpful_message = f"Cannot create MR: Project or branch not found"
+            helpful_message = "Cannot create MR: Project or branch not found"
             suggestions.append(f"Verify project '{project_id}' exists")
             suggestions.append(f"Verify branches '{source_branch}' and '{target_branch}' exist")
 
@@ -4242,13 +4254,15 @@ async def create_release(
         if e.response.status_code == 409:
             # Conflict - release already exists
             helpful_message = f"Cannot create release: Release with tag '{tag_name}' already exists"
-            suggestions.append(f"Use a different tag name or update the existing release")
+            suggestions.append("Use a different tag name or update the existing release")
             suggestions.append(f"View existing release: gitlab://projects/{project_id}/releases/{tag_name}")
         elif e.response.status_code == 400:
             # Bad request - usually validation error
             if "Tag does not exist" in error_message or "ref" in error_message.lower():
                 helpful_message = f"Cannot create release: Tag '{tag_name}' does not exist"
-                suggestions.append(f"Create the tag first, or provide 'ref' parameter to create tag from a commit/branch")
+                suggestions.append(
+                    "Create the tag first, or provide 'ref' parameter to create tag from a commit/branch"
+                )
                 if ref:
                     suggestions.append(f"Current ref value: '{ref}' - verify this commit/branch exists")
                 else:
@@ -4262,7 +4276,7 @@ async def create_release(
             suggestions.append(f"Verify project '{project_id}' exists and you have access")
         elif e.response.status_code == 403:
             # Forbidden - insufficient permissions
-            helpful_message = f"Cannot create release: Insufficient permissions"
+            helpful_message = "Cannot create release: Insufficient permissions"
             suggestions.append("You need Developer level access or higher to create releases")
             suggestions.append("Check your role in the project")
 
