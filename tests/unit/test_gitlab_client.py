@@ -267,3 +267,58 @@ class TestGitLabClientMethods:
         # Verify per_page was set to 3 (default for pipelines)
         call_args = mock_httpx_client.get.call_args
         assert call_args[1]["params"]["per_page"] == 3
+
+
+class TestDiscussionFiltering:
+    """Tests for discussion filtering helpers."""
+
+    def test_is_user_discussion_with_user_note(self) -> None:
+        """User notes should return True."""
+        from gitlab_mcp import is_user_discussion
+
+        discussion = {"notes": [{"system": False, "body": "LGTM"}]}
+        assert is_user_discussion(discussion) is True
+
+    def test_is_user_discussion_with_system_note(self) -> None:
+        """System notes should return False."""
+        from gitlab_mcp import is_user_discussion
+
+        discussion = {"notes": [{"system": True, "body": "assigned to @user"}]}
+        assert is_user_discussion(discussion) is False
+
+    def test_is_user_discussion_with_empty_notes(self) -> None:
+        """Empty discussions should return False."""
+        from gitlab_mcp import is_user_discussion
+
+        discussion = {"notes": []}
+        assert is_user_discussion(discussion) is False
+
+    def test_is_user_discussion_missing_system_field(self) -> None:
+        """Missing 'system' field should default to user note (backward compatible)."""
+        from gitlab_mcp import is_user_discussion
+
+        discussion = {"notes": [{"body": "Comment"}]}
+        assert is_user_discussion(discussion) is True
+
+    def test_filter_actionable_discussions(self) -> None:
+        """Should only include unresolved user discussions."""
+        from gitlab_mcp import filter_actionable_discussions
+
+        discussions = [
+            {"notes": [{"system": False, "resolved": False, "body": "Fix this"}]},  # KEEP
+            {"notes": [{"system": False, "resolved": True, "body": "Done"}]},  # EXCLUDE (resolved)
+            {"notes": [{"system": True, "resolved": False, "body": "assigned"}]},  # EXCLUDE (system)
+            {"notes": [{"system": True, "resolved": True, "body": "merged"}]},  # EXCLUDE (both)
+            {"notes": []},  # EXCLUDE (empty)
+        ]
+        result = filter_actionable_discussions(discussions)
+        assert len(result) == 1
+        assert result[0]["notes"][0]["body"] == "Fix this"
+
+    def test_filter_actionable_discussions_backward_compatible(self) -> None:
+        """Should handle old API format without 'system' field."""
+        from gitlab_mcp import filter_actionable_discussions
+
+        discussions = [{"notes": [{"resolved": False, "body": "Comment"}]}]
+        result = filter_actionable_discussions(discussions)
+        assert len(result) == 1  # Should include it
