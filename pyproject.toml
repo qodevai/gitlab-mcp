@@ -101,6 +101,7 @@ exclude_lines = [
 
 [tool.typos.default]
 extend-ignore-re = ["[0-9a-zA-Z]{40,}"]
+extend-words = { noteable = "noteable" }
 
 [tool.typos.files]
 extend-exclude = ["uv.lock", "*.log"]

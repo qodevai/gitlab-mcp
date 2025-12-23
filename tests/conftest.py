@@ -126,6 +126,23 @@ def sample_issue() -> dict:
     }
 
 
+@pytest.fixture
+def sample_note() -> dict:
+    """Sample GitLab note/comment response."""
+    return {
+        "id": 2001,
+        "type": "DiscussionNote",
+        "body": "Closing this MR",
+        "author": {"id": 1, "username": "testuser", "name": "Test User"},
+        "created_at": "2024-01-15T10:00:00Z",
+        "updated_at": "2024-01-15T10:00:00Z",
+        "system": False,
+        "noteable_id": 456,
+        "noteable_type": "MergeRequest",
+        "noteable_iid": 1,
+    }
+
+
 # Integration test fixtures
 
 

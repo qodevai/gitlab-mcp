@@ -3454,12 +3454,14 @@ async def close_merge_request(
     ctx: Context,
     project_id: str,
     mr_iid: str | int,
+    comment: str | None = None,
 ) -> dict[str, Any]:
     """Close a specific merge request by project and MR IID
 
     Args:
         project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
         mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+        comment: Optional comment to post when closing (supports Markdown formatting)
 
     Returns:
         Result of close operation with closed MR details
@@ -3481,11 +3483,30 @@ async def close_merge_request(
             mr_iid=resolved_mr_iid,
         )
 
-        return {
+        response = {
             "success": True,
             "message": f"Successfully closed MR !{resolved_mr_iid} in project {project_id}",
             "merge_request": result,
         }
+
+        # If comment provided, attempt to post it
+        if comment:
+            try:
+                note = gitlab_client.create_mr_note(
+                    project_id=resolved_project_id,
+                    mr_iid=resolved_mr_iid,
+                    body=comment,
+                )
+                response["comment"] = note
+                response["message"] = f"Successfully closed MR !{resolved_mr_iid} with comment in project {project_id}"
+            except (httpx.HTTPStatusError, httpx.RequestError) as comment_error:
+                # Non-fatal: MR is closed, just warn about comment failure
+                logger.warning(
+                    f"Failed to post closing comment on MR !{resolved_mr_iid} in project {resolved_project_id}: {str(comment_error)}"
+                )
+                response["warning"] = f"Failed to post closing comment: {str(comment_error)}"
+
+        return response
     except httpx.HTTPStatusError as e:
         import json
 

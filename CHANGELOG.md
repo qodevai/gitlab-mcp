@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full Markdown support in issue descriptions and comments
   - Comprehensive error handling with helpful suggestions
 
+- **Optional Comment When Closing MRs** - Add comment parameter to `close_merge_request` tool
+  - Optional `comment` parameter allows leaving a comment when closing an MR in a single operation
+  - Similar to GitHub CLI: `gh pr close --comment "reason"`
+  - Common use case: "Superseded by !123", "No longer needed", etc.
+  - Handles partial failures gracefully: if close succeeds but comment fails, returns success with warning
+  - Fully backward compatible: existing calls without comment parameter work identically
+  - Supports Markdown formatting in comments
+
 ### Fixed
 - **MR Squash Settings Not Applied** - Workaround for GitLab API bug that ignores project squash settings
   - GitLab API doesn't respect project's "Squash commits" setting when creating MRs via API

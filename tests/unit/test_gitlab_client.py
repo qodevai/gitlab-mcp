@@ -322,3 +322,82 @@ class TestDiscussionFiltering:
         discussions = [{"notes": [{"resolved": False, "body": "Comment"}]}]
         result = filter_actionable_discussions(discussions)
         assert len(result) == 1  # Should include it
+
+
+class TestMergeRequestOperations:
+    """Tests for merge request operations."""
+
+    def test_close_mr_success(
+        self, mock_env_vars: dict, mock_httpx_client: MagicMock, sample_merge_request: dict
+    ) -> None:
+        """Test successfully closing a merge request."""
+        closed_mr = {**sample_merge_request, "state": "closed"}
+        mock_response = MagicMock()
+        mock_response.json.return_value = closed_mr
+        mock_response.raise_for_status = MagicMock()
+        mock_httpx_client.put.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        result = client.close_mr("123", 1)
+
+        assert result["state"] == "closed"
+        assert result["iid"] == 1
+        # Verify PUT request was made with correct parameters
+        mock_httpx_client.put.assert_called_once()
+        call_args = mock_httpx_client.put.call_args
+        assert "123/merge_requests/1" in call_args[0][0]
+        assert call_args[1]["json"]["state_event"] == "close"
+
+    def test_create_mr_note_success(self, mock_env_vars: dict, mock_httpx_client: MagicMock, sample_note: dict) -> None:
+        """Test successfully creating a note/comment on a merge request."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_note
+        mock_response.raise_for_status = MagicMock()
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        result = client.create_mr_note("123", 1, "LGTM!")
+
+        assert result["body"] == "Closing this MR"
+        assert result["id"] == 2001
+        # Verify POST request was made with correct parameters
+        mock_httpx_client.post.assert_called_once()
+        call_args = mock_httpx_client.post.call_args
+        assert "123/merge_requests/1/notes" in call_args[0][0]
+        assert call_args[1]["json"]["body"] == "LGTM!"
+
+    def test_close_mr_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test close_mr handles HTTP errors correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = '{"message": "Not found"}'
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not found", request=MagicMock(), response=mock_response
+        )
+        mock_httpx_client.put.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        with pytest.raises(httpx.HTTPStatusError):
+            client.close_mr("123", 999)
+
+    def test_create_mr_note_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test create_mr_note handles HTTP errors correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = '{"message": "Forbidden"}'
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Forbidden", request=MagicMock(), response=mock_response
+        )
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        with pytest.raises(httpx.HTTPStatusError):
+            client.create_mr_note("123", 1, "Comment")
