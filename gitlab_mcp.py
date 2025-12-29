@@ -3932,27 +3932,6 @@ async def create_merge_request(
 
         logger.info(f"Auto-detected source branch: {source_branch}")
 
-    # WORKAROUND: GitLab API doesn't respect project squash settings when creating MRs
-    # See: https://gitlab.com/gitlab-org/gitlab/-/issues/385301
-    # When squash is not explicitly set, fetch project settings and apply them
-    # TODO: Remove this workaround when GitLab fixes the upstream bug
-    if squash is None:
-        try:
-            project = gitlab_client.get_project(resolved_project_id)
-            squash_option = project.get("squash_option", "default_off")
-            # squash_option values: "never", "default_off", "default_on", "always"
-            # "default_on" = Encourage, "always" = Require
-            if squash_option in ("default_on", "always"):
-                squash = True
-                logger.info(f"Auto-setting squash=True based on project setting: {squash_option}")
-            elif squash_option == "default_off":
-                squash = False
-                logger.info(f"Auto-setting squash=False based on project setting: {squash_option}")
-            # "never" means squash is not allowed, so we leave it as None
-        except Exception as e:
-            logger.warning(f"Could not fetch project squash settings: {e}")
-            # Continue without setting squash - let GitLab use its default
-
     try:
         result = gitlab_client.create_merge_request(
             project_id=resolved_project_id,
