@@ -273,6 +273,37 @@ class GitLabClient:
             logger.exception(f"Unexpected error for GET job {job_id}: {e}")
             raise
 
+    def retry_job(self, project_id: str, job_id: int) -> dict[str, Any]:
+        """Retry a job (creates a new job)
+
+        Args:
+            project_id: Project ID or path
+            job_id: Job ID to retry
+
+        Returns:
+            New job details dictionary
+
+        Raises:
+            httpx.HTTPStatusError: If job not found or cannot be retried
+        """
+        encoded_id = self._encode_project_id(project_id)
+        try:
+            logger.info(f"Retrying job {job_id} in project {project_id}")
+            response = self.client.post(f"/projects/{encoded_id}/jobs/{job_id}/retry")
+            response.raise_for_status()
+            logger.info(f"Successfully retried job {job_id}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to retry job {job_id}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while retrying job {job_id}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while retrying job {job_id}: {e}")
+            raise
+
     def get_job_artifact(self, project_id: str, job_id: int, artifact_path: str) -> bytes:
         """Download a specific artifact file from a job
 
@@ -2099,6 +2130,7 @@ TOOLS - Perform actions (all support "current"):
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 - download_artifact(project_id, job_id, artifact_path, destination=None) - Download artifact to local filesystem for shell analysis (grep, wc, etc.). Returns file path. (supports project_id="current")
+- retry_job(project_id, job_id) - Retry a failed or canceled job (supports project_id="current")
 - create_issue(project_id, title, description, labels, assignee_ids) - Create a new issue (supports project_id="current")
 - update_issue(project_id, issue_iid, title, description, labels, assignee_ids, state_event) - Update issue (supports project_id="current")
 - close_issue(project_id, issue_iid) - Close an issue (supports project_id="current")
@@ -2140,6 +2172,7 @@ Examples:
 - "Show entire artifact file" → gitlab://projects/current/jobs/12123/artifacts/output.txt?lines=all
 - "Download artifact for grep/wc analysis" → download_artifact("current", 12123, "logs.txt")
 - "Download artifact to specific path" → download_artifact("current", 12123, "logs.txt", "/tmp/build.log")
+- "Retry job 12345" → retry_job("current", 12345)
 - "List issues in my project" → gitlab://projects/current/issues/
 - "Show me issue #42" → gitlab://projects/current/issues/42
 - "What comments are on issue #42?" → gitlab://projects/current/issues/42/notes
@@ -4443,6 +4476,55 @@ async def download_artifact(
         return {
             "success": False,
             "error": f"Unexpected error downloading artifact: {str(e)}",
+            "project_id": project_id,
+            "job_id": job_id,
+        }
+
+
+@mcp.tool()
+async def retry_job(ctx: Context, project_id: str, job_id: int) -> dict[str, Any]:
+    """Retry a specific job by project and job ID
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        job_id: Job ID to retry
+
+    Returns:
+        Result with success status and new job details
+
+    Raises:
+        Error if job retry fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        new_job = gitlab_client.retry_job(
+            project_id=resolved_project_id,
+            job_id=job_id,
+        )
+        return {
+            "success": True,
+            "message": f"Successfully retried job {job_id}. New job ID: {new_job.get('id')}",
+            "job": new_job,
+            "project_id": project_id,
+            "old_job_id": job_id,
+            "new_job_id": new_job.get("id"),
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to retry job {job_id}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "job_id": job_id,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while retrying job {job_id}: {str(e)}",
             "project_id": project_id,
             "job_id": job_id,
         }

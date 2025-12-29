@@ -401,3 +401,78 @@ class TestMergeRequestOperations:
         client = GitLabClient(validate=False)
         with pytest.raises(httpx.HTTPStatusError):
             client.create_mr_note("123", 1, "Comment")
+
+
+class TestJobOperations:
+    """Tests for job operations."""
+
+    def test_retry_job_success(self, mock_env_vars: dict, mock_httpx_client: MagicMock, sample_job: dict) -> None:
+        """Test successfully retrying a job."""
+        new_job = {**sample_job, "id": 1002, "status": "pending"}
+        mock_response = MagicMock()
+        mock_response.json.return_value = new_job
+        mock_response.raise_for_status = MagicMock()
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        result = client.retry_job("123", 1001)
+
+        assert result["id"] == 1002
+        assert result["status"] == "pending"
+        # Verify POST request was made with correct endpoint
+        mock_httpx_client.post.assert_called_once()
+        call_args = mock_httpx_client.post.call_args
+        assert "123/jobs/1001/retry" in call_args[0][0]
+
+    def test_retry_job_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test retry_job handles HTTP errors correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = '{"message": "Forbidden"}'
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Forbidden", request=MagicMock(), response=mock_response
+        )
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        with pytest.raises(httpx.HTTPStatusError):
+            client.retry_job("123", 1001)
+
+    def test_retry_job_not_found(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test retry_job handles 404 not found correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = '{"message": "Job not found"}'
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not found", request=MagicMock(), response=mock_response
+        )
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        with pytest.raises(httpx.HTTPStatusError):
+            client.retry_job("123", 99999)
+
+    def test_retry_job_encodes_project_path(
+        self, mock_env_vars: dict, mock_httpx_client: MagicMock, sample_job: dict
+    ) -> None:
+        """Test retry_job properly encodes project path with slashes."""
+        new_job = {**sample_job, "id": 1002, "status": "pending"}
+        mock_response = MagicMock()
+        mock_response.json.return_value = new_job
+        mock_response.raise_for_status = MagicMock()
+        mock_httpx_client.post.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+        client.retry_job("group/project", 1001)
+
+        # Verify project path was URL-encoded
+        call_args = mock_httpx_client.post.call_args
+        assert "group%2Fproject/jobs/1001/retry" in call_args[0][0]
