@@ -1,18 +1,62 @@
+import base64
+import binascii
 import json
 import logging
 import os
 import re
 import subprocess
 import time
-from typing import Any
+from typing import Any, NotRequired
 
 import httpx
 from dotenv import load_dotenv
 from fastmcp import Context, FastMCP
 from mcp import types
+from typing_extensions import TypedDict
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Separator between content and appended images
+IMAGE_MARKDOWN_SEPARATOR = "\n\n"
+
+
+# Type definitions for file uploads
+class FileFromPath(TypedDict):
+    """File input from local filesystem path."""
+
+    path: str
+
+
+class FileFromBase64(TypedDict):
+    """File input from base64-encoded data."""
+
+    base64: str
+    filename: str
+
+
+# Union type - either path OR base64+filename, not both
+FileSource = FileFromPath | FileFromBase64
+
+
+# For images parameter in tools (extends FileSource with optional alt text)
+class ImageFromPath(TypedDict):
+    """Image input from local file path."""
+
+    path: str
+    alt: NotRequired[str]
+
+
+class ImageFromBase64(TypedDict):
+    """Image input from base64-encoded data."""
+
+    base64: str
+    filename: str
+    alt: NotRequired[str]
+
+
+# Union type for images parameter
+ImageInput = ImageFromPath | ImageFromBase64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -1630,6 +1674,68 @@ class GitLabClient:
             logger.exception(f"Unexpected error while creating note on issue #{issue_iid}: {e}")
             raise
 
+    def upload_file(self, project_id: str, source: FileSource) -> dict[str, Any]:
+        """Upload a file to GitLab for use in markdown.
+
+        Uses the GitLab Markdown Uploads API to upload a file that can be
+        embedded in issues, merge requests, comments, or releases.
+
+        Args:
+            project_id: Project ID or path
+            source: Either FileFromPath ({"path": "/local/file.png"}) or
+                    FileFromBase64 ({"base64": "...", "filename": "name.png"})
+
+        Returns:
+            Dict with: id, alt, url, full_path, markdown
+            The 'markdown' field contains a ready-to-use markdown image tag.
+
+        Raises:
+            FileNotFoundError: If file_path doesn't exist
+            ValueError: If base64 data is invalid
+            httpx.HTTPStatusError: If upload fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        if "path" in source:
+            # FileFromPath variant - read file from disk
+            file_path = source["path"]
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+            filename = os.path.basename(file_path)
+        else:
+            # FileFromBase64 variant - decode base64
+            try:
+                file_content = base64.b64decode(source["base64"], validate=True)
+            except binascii.Error as e:
+                raise ValueError(f"Invalid base64 data: {e}") from e
+            filename = source["filename"]
+
+        # Use separate request without JSON Content-Type header
+        # The default self.client has Content-Type: application/json which breaks multipart
+        files = {"file": (filename, file_content)}
+        try:
+            logger.info(f"Uploading file '{filename}' to project {project_id}")
+            response = httpx.post(
+                f"{self.api_url}/projects/{encoded_id}/uploads",
+                files=files,
+                headers={"PRIVATE-TOKEN": str(self.token)},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"Successfully uploaded file '{filename}' to project {project_id}")
+            return result
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to upload file '{filename}': {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while uploading file '{filename}': {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while uploading file '{filename}': {e}")
+            raise
+
 
 # Helper functions
 def create_repo_not_found_error(gitlab_base_url: str) -> dict[str, str]:
@@ -1694,6 +1800,46 @@ def filter_actionable_discussions(discussions: list[dict[str, Any]]) -> list[dic
         Filtered list containing only unresolved user discussions
     """
     return [d for d in discussions if is_user_discussion(d) and not d.get("notes", [{}])[0].get("resolved", False)]
+
+
+def process_images(project_id: str, images: list[ImageInput] | None) -> str:
+    """Process image list and return markdown to append.
+
+    Uploads each image to GitLab and returns markdown image tags.
+    This helper is used by tools that support the `images` parameter.
+
+    Args:
+        project_id: Resolved project ID (must already be resolved, not "current")
+        images: List of ImageInput (either ImageFromPath or ImageFromBase64)
+
+    Returns:
+        Markdown string with all uploaded images prefixed with newlines,
+        or empty string if no images provided.
+
+    Raises:
+        FileNotFoundError: If a file path doesn't exist
+        ValueError: If base64 data is invalid
+        httpx.HTTPStatusError: If upload fails
+    """
+    if not images:
+        return ""
+
+    markdown_parts = []
+    for img in images:
+        # Convert ImageInput to FileSource (strip alt text for upload)
+        if "path" in img:
+            source: FileSource = {"path": img["path"]}
+        else:
+            source = {"base64": img["base64"], "filename": img["filename"]}
+
+        result = gitlab_client.upload_file(project_id, source)
+
+        # Use custom alt text if provided, otherwise use GitLab's default
+        alt = img.get("alt", result.get("alt", "image"))
+        markdown_parts.append(f"![{alt}]({result['url']})")
+
+    # markdown_parts is always non-empty here since we return early if not images
+    return IMAGE_MARKDOWN_SEPARATOR + "\n".join(markdown_parts)
 
 
 # Helper functions for git repository detection
@@ -2121,20 +2267,22 @@ Specific Project/MR (use numeric ID or URL-encoded path):
 - gitlab://projects/123/issues/42/notes - Issue comments in specific project
 
 TOOLS - Perform actions (all support "current"):
-- create_release(project_id, tag_name, name, description, ref, ...) - Create a new release (supports project_id="current", auto-detects ref from current branch)
-- create_merge_request(project_id, title, source_branch, target_branch, ...) - Create a new MR (supports project_id="current", auto-detects source_branch)
-- comment_on_merge_request(project_id, mr_iid, comment) - Leave a comment (supports project_id="current", mr_iid="current")
+- upload_file(project_id, source) - Upload a file for embedding in descriptions/comments. source is either {"path": "/local/file.png"} or {"base64": "...", "filename": "name.png"}. Returns markdown string. (supports project_id="current")
+- create_release(project_id, tag_name, name, description, ref, ..., images) - Create a new release (supports project_id="current", auto-detects ref from current branch)
+- create_merge_request(project_id, title, source_branch, target_branch, ..., images) - Create a new MR (supports project_id="current", auto-detects source_branch)
+- comment_on_merge_request(project_id, mr_iid, comment, images) - Leave a comment (supports project_id="current", mr_iid="current")
 - merge_merge_request(project_id, mr_iid, ...) - Merge an MR (supports project_id="current", mr_iid="current")
 - close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
-- update_merge_request(project_id, mr_iid, title, description, ...) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
+- update_merge_request(project_id, mr_iid, title, description, ..., images) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
+- reply_to_discussion(project_id, mr_iid, discussion_id, comment, images) - Reply to a discussion thread (supports project_id="current", mr_iid="current")
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 - download_artifact(project_id, job_id, artifact_path, destination=None) - Download artifact to local filesystem for shell analysis (grep, wc, etc.). Returns file path. (supports project_id="current")
 - retry_job(project_id, job_id) - Retry a failed or canceled job (supports project_id="current")
-- create_issue(project_id, title, description, labels, assignee_ids) - Create a new issue (supports project_id="current")
-- update_issue(project_id, issue_iid, title, description, labels, assignee_ids, state_event) - Update issue (supports project_id="current")
+- create_issue(project_id, title, description, labels, assignee_ids, images) - Create a new issue (supports project_id="current")
+- update_issue(project_id, issue_iid, title, description, labels, assignee_ids, state_event, images) - Update issue (supports project_id="current")
 - close_issue(project_id, issue_iid) - Close an issue (supports project_id="current")
-- comment_on_issue(project_id, issue_iid, comment) - Leave a comment on an issue (supports project_id="current")
+- comment_on_issue(project_id, issue_iid, comment, images) - Leave a comment on an issue (supports project_id="current")
 
 Examples:
 - "Is this MR ready to merge?" → gitlab://projects/current/merge-requests/current/status
@@ -2180,6 +2328,22 @@ Examples:
 - "Close issue #42" → close_issue("current", 42)
 - "Comment on issue #42" → comment_on_issue("current", 42, "Fixed in latest commit")
 - "Update issue #42 to add urgent label" → update_issue("current", 42, labels="bug,urgent")
+- "Upload a screenshot" → upload_file("current", {"path": "/tmp/screenshot.png"})
+- "Upload base64 image" → upload_file("current", {"base64": "iVBORw0KGgo...", "filename": "image.png"})
+- "Create issue with image" → create_issue("current", "Bug report", "See attached", images=[{"path": "/tmp/error.png"}])
+- "Comment with screenshot" → comment_on_issue("current", 42, "Here's what I see:", images=[{"path": "/tmp/screenshot.png", "alt": "Error screenshot"}])
+
+IMAGE UPLOADS:
+- The `images` parameter accepts a list of image objects
+- Each image is either: {"path": "/local/file.png"} OR {"base64": "...", "filename": "name.png"}
+- Optional "alt" field for custom alt text: {"path": "/img.png", "alt": "Screenshot"}
+- Images are uploaded to GitLab and appended as markdown to the description/comment
+- Use upload_file() directly to get markdown for manual embedding
+
+Claude Code Image Locations:
+- Pasted/dropped images are cached at: ~/.claude/image-cache/<session-id>/<n>.png
+- Images can also be extracted from conversation logs: ~/.claude/projects/*/*.jsonl (base64 encoded)
+- Use the path directly: {"path": "~/.claude/image-cache/.../1.png"}
 
 Token Efficiency:
 - Use /status for merge readiness checks (85-90% token savings vs separate calls)
@@ -3153,13 +3317,21 @@ async def project_issue_notes(ctx: Context, project_id: str, issue_iid: str) -> 
 
 # Tools
 @mcp.tool()
-async def comment_on_merge_request(ctx: Context, project_id: str, mr_iid: str | int, comment: str) -> dict[str, Any]:
+async def comment_on_merge_request(
+    ctx: Context,
+    project_id: str,
+    mr_iid: str | int,
+    comment: str,
+    images: list[ImageInput] | None = None,
+) -> dict[str, Any]:
     """Leave a comment on a specific merge request by project and MR IID
 
     Args:
         project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
         mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
         comment: Comment text to post (supports Markdown formatting)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result of comment operation with created note details
@@ -3176,10 +3348,14 @@ async def comment_on_merge_request(ctx: Context, project_id: str, mr_iid: str | 
         return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
 
     try:
+        # Process images and append markdown to comment
+        image_markdown = process_images(resolved_project_id, images)
+        final_comment = comment + image_markdown if image_markdown else comment
+
         note = gitlab_client.create_mr_note(
             project_id=resolved_project_id,
             mr_iid=resolved_mr_iid,
-            body=comment,
+            body=final_comment,
         )
 
         return {
@@ -3209,7 +3385,12 @@ async def comment_on_merge_request(ctx: Context, project_id: str, mr_iid: str | 
 
 @mcp.tool()
 async def reply_to_discussion(
-    ctx: Context, project_id: str, mr_iid: str | int, discussion_id: str, comment: str
+    ctx: Context,
+    project_id: str,
+    mr_iid: str | int,
+    discussion_id: str,
+    comment: str,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Reply to an existing discussion thread on a merge request
 
@@ -3218,6 +3399,8 @@ async def reply_to_discussion(
         mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
         discussion_id: Discussion thread ID to reply to
         comment: Reply text to post (supports Markdown formatting)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result of reply operation with created note details
@@ -3234,11 +3417,15 @@ async def reply_to_discussion(
         return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
 
     try:
+        # Process images and append markdown to comment
+        image_markdown = process_images(resolved_project_id, images)
+        final_comment = comment + image_markdown if image_markdown else comment
+
         note = gitlab_client.reply_to_discussion(
             project_id=resolved_project_id,
             mr_iid=resolved_mr_iid,
             discussion_id=discussion_id,
-            body=comment,
+            body=final_comment,
         )
 
         return {
@@ -3578,6 +3765,7 @@ async def update_merge_request(
     assignee_ids: list[int] | None = None,
     reviewer_ids: list[int] | None = None,
     labels: str | None = None,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Update a merge request's title, description, or other properties
 
@@ -3591,6 +3779,8 @@ async def update_merge_request(
         assignee_ids: List of assignee user IDs (optional)
         reviewer_ids: List of reviewer user IDs (optional)
         labels: Comma-separated label names (optional)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result with success status and updated MR details
@@ -3607,11 +3797,24 @@ async def update_merge_request(
         return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
 
     try:
+        # Process images and append markdown to description
+        image_markdown = process_images(resolved_project_id, images)
+
+        # If images provided but no description, fetch current description to append to
+        if image_markdown and description is None:
+            current_mr = gitlab_client.get_merge_request(resolved_project_id, resolved_mr_iid)
+            base_description = current_mr.get("description", "") or ""
+            final_description = base_description + image_markdown
+        elif image_markdown:
+            final_description = description + image_markdown
+        else:
+            final_description = description
+
         result = gitlab_client.update_mr(
             project_id=resolved_project_id,
             mr_iid=resolved_mr_iid,
             title=title,
-            description=description,
+            description=final_description,
             target_branch=target_branch,
             state_event=state_event,
             assignee_ids=assignee_ids,
@@ -3884,6 +4087,7 @@ async def create_merge_request(
     remove_source_branch: bool = True,
     squash: bool | None = None,
     allow_collaboration: bool = False,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Create a new merge request in a project
 
@@ -3899,6 +4103,8 @@ async def create_merge_request(
         remove_source_branch: Remove source branch after merge (default: True)
         squash: Squash commits on merge (None = use project settings, True = squash, False = don't squash)
         allow_collaboration: Allow commits from members with merge access (default: False)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result with success status and created MR details including web URL
@@ -3933,12 +4139,16 @@ async def create_merge_request(
         logger.info(f"Auto-detected source branch: {source_branch}")
 
     try:
+        # Process images and append markdown to description
+        image_markdown = process_images(resolved_project_id, images)
+        final_description = (description or "") + image_markdown if image_markdown else description
+
         result = gitlab_client.create_merge_request(
             project_id=resolved_project_id,
             source_branch=source_branch,
             target_branch=target_branch,
             title=title,
-            description=description,
+            description=final_description,
             assignee_ids=assignee_ids,
             reviewer_ids=reviewer_ids,
             labels=labels,
@@ -4010,6 +4220,71 @@ async def create_merge_request(
 
 
 @mcp.tool()
+async def upload_file(
+    ctx: Context,
+    project_id: str,
+    source: FileSource,
+) -> dict[str, Any]:
+    """Upload a file to GitLab for embedding in issues, MRs, or comments.
+
+    Uploads a file to GitLab's project uploads and returns a markdown-ready
+    image/file tag that can be embedded in descriptions or comments.
+
+    Args:
+        project_id: Project ID, path, or "current"
+        source: File source - either {"path": "/local/file.png"} for local files
+                or {"base64": "...", "filename": "name.png"} for base64 data
+
+    Returns:
+        { success, markdown, url, full_path, alt }
+        The 'markdown' field contains a ready-to-use markdown tag.
+
+    Examples:
+        upload_file("current", {"path": "/tmp/screenshot.png"})
+        upload_file("current", {"base64": "iVBORw0KGgo...", "filename": "image.png"})
+
+    Raises:
+        Error if upload fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    try:
+        result = gitlab_client.upload_file(resolved_project_id, source)
+        filename = result.get("alt", "file")
+        return {
+            "success": True,
+            "message": f"Successfully uploaded '{filename}' to project {project_id}",
+            "markdown": result["markdown"],
+            "url": result["url"],
+            "full_path": result.get("full_path"),
+            "alt": result.get("alt"),
+            "project_id": project_id,
+        }
+    except FileNotFoundError as e:
+        return {
+            "success": False,
+            "error": f"File not found: {str(e)}",
+            "project_id": project_id,
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to upload file: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error uploading file: {str(e)}",
+            "project_id": project_id,
+        }
+
+
+@mcp.tool()
 async def create_issue(
     ctx: Context,
     project_id: str,
@@ -4017,6 +4292,7 @@ async def create_issue(
     description: str | None = None,
     labels: str | None = None,
     assignee_ids: list[int] | None = None,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Create a new issue in a project
 
@@ -4026,6 +4302,8 @@ async def create_issue(
         description: Issue description (optional, supports Markdown)
         labels: Comma-separated label names (optional, e.g., "bug,urgent")
         assignee_ids: List of user IDs to assign (optional)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result with success status and created issue details including web URL
@@ -4038,10 +4316,14 @@ async def create_issue(
         return {"success": False, "error": f"Could not resolve project '{project_id}'"}
 
     try:
+        # Process images and append markdown to description
+        image_markdown = process_images(resolved_project_id, images)
+        final_description = (description or "") + image_markdown if image_markdown else description
+
         issue = gitlab_client.create_issue(
             project_id=resolved_project_id,
             title=title,
-            description=description,
+            description=final_description,
             labels=labels,
             assignee_ids=assignee_ids,
         )
@@ -4079,6 +4361,7 @@ async def update_issue(
     labels: str | None = None,
     assignee_ids: list[int] | None = None,
     state_event: str | None = None,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Update an existing issue's title, description, or other properties
 
@@ -4090,6 +4373,8 @@ async def update_issue(
         labels: New comma-separated label names (optional)
         assignee_ids: New list of assignee user IDs (optional)
         state_event: Change state: "close" or "reopen" (optional)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result with success status and updated issue details
@@ -4102,11 +4387,24 @@ async def update_issue(
         return {"success": False, "error": f"Could not resolve project '{project_id}'"}
 
     try:
+        # Process images and append markdown to description
+        image_markdown = process_images(resolved_project_id, images)
+
+        # If images provided but no description, fetch current description to append to
+        if image_markdown and description is None:
+            current_issue = gitlab_client.get_issue(resolved_project_id, issue_iid)
+            base_description = current_issue.get("description", "") or ""
+            final_description = base_description + image_markdown
+        elif image_markdown:
+            final_description = description + image_markdown
+        else:
+            final_description = description
+
         issue = gitlab_client.update_issue(
             project_id=resolved_project_id,
             issue_iid=issue_iid,
             title=title,
-            description=description,
+            description=final_description,
             state_event=state_event,
             labels=labels,
             assignee_ids=assignee_ids,
@@ -4187,13 +4485,21 @@ async def close_issue(ctx: Context, project_id: str, issue_iid: int) -> dict[str
 
 
 @mcp.tool()
-async def comment_on_issue(ctx: Context, project_id: str, issue_iid: int, comment: str) -> dict[str, Any]:
+async def comment_on_issue(
+    ctx: Context,
+    project_id: str,
+    issue_iid: int,
+    comment: str,
+    images: list[ImageInput] | None = None,
+) -> dict[str, Any]:
     """Leave a comment on a specific issue by project and issue IID
 
     Args:
         project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
         issue_iid: Issue IID (the #number)
         comment: Comment text to post (supports Markdown formatting)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result of comment operation with created note details
@@ -4206,10 +4512,14 @@ async def comment_on_issue(ctx: Context, project_id: str, issue_iid: int, commen
         return {"success": False, "error": f"Could not resolve project '{project_id}'"}
 
     try:
+        # Process images and append markdown to comment
+        image_markdown = process_images(resolved_project_id, images)
+        final_comment = comment + image_markdown if image_markdown else comment
+
         note = gitlab_client.create_issue_note(
             project_id=resolved_project_id,
             issue_iid=issue_iid,
-            body=comment,
+            body=final_comment,
         )
         return {
             "success": True,
@@ -4247,6 +4557,7 @@ async def create_release(
     milestones: list[str] | None = None,
     released_at: str | None = None,
     assets_links: list[dict[str, str]] | None = None,
+    images: list[ImageInput] | None = None,
 ) -> dict[str, Any]:
     """Create a new release in a project
 
@@ -4259,6 +4570,8 @@ async def create_release(
         milestones: List of milestone titles to associate (optional)
         released_at: ISO 8601 datetime for release (optional, defaults to current time)
         assets_links: List of asset link dicts with 'name', 'url', and optional 'direct_asset_path' (optional)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
 
     Returns:
         Result with success status and created release details
@@ -4285,11 +4598,15 @@ async def create_release(
                 logger.info(f"Auto-detected ref from current branch: {ref}")
 
     try:
+        # Process images and append markdown to description
+        image_markdown = process_images(resolved_project_id, images)
+        final_description = (description or "") + image_markdown if image_markdown else description
+
         result = gitlab_client.create_release(
             project_id=resolved_project_id,
             tag_name=tag_name,
             name=name,
-            description=description,
+            description=final_description,
             ref=ref,
             milestones=milestones,
             released_at=released_at,

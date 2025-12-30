@@ -476,3 +476,217 @@ class TestJobOperations:
         # Verify project path was URL-encoded
         call_args = mock_httpx_client.post.call_args
         assert "group%2Fproject/jobs/1001/retry" in call_args[0][0]
+
+
+class TestFileUploadOperations:
+    """Tests for file upload operations.
+
+    Note: These tests work with individual GitLabClient instances created with validate=False.
+    They don't test the global gitlab_client which requires mocking at import time.
+    """
+
+    def test_upload_file_from_path(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+        """Test uploading a file from filesystem path."""
+        # Create a test file
+        test_file = tmp_path / "test_image.png"
+        test_file.write_bytes(b"fake image content")
+
+        upload_response = {
+            "id": 5,
+            "alt": "test_image",
+            "url": "/uploads/abc123/test_image.png",
+            "full_path": "/-/project/123/uploads/abc123/test_image.png",
+            "markdown": "![test_image](/uploads/abc123/test_image.png)",
+        }
+
+        with patch("gitlab_mcp.httpx.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.json.return_value = upload_response
+            mock_response.raise_for_status = MagicMock()
+            mock_post.return_value = mock_response
+
+            from gitlab_mcp import GitLabClient
+
+            client = GitLabClient(validate=False)
+            result = client.upload_file("123", {"path": str(test_file)})
+
+            assert result["markdown"] == "![test_image](/uploads/abc123/test_image.png)"
+            assert result["url"] == "/uploads/abc123/test_image.png"
+
+            # Verify the POST was called with correct parameters
+            mock_post.assert_called_once()
+            call_args = mock_post.call_args
+            assert "123/uploads" in call_args[0][0]
+            assert "files" in call_args[1]
+
+    def test_upload_file_from_base64(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test uploading a file from base64-encoded data."""
+        import base64
+
+        upload_response = {
+            "id": 6,
+            "alt": "screenshot",
+            "url": "/uploads/def456/screenshot.png",
+            "full_path": "/-/project/123/uploads/def456/screenshot.png",
+            "markdown": "![screenshot](/uploads/def456/screenshot.png)",
+        }
+
+        with patch("gitlab_mcp.httpx.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.json.return_value = upload_response
+            mock_response.raise_for_status = MagicMock()
+            mock_post.return_value = mock_response
+
+            from gitlab_mcp import GitLabClient
+
+            client = GitLabClient(validate=False)
+            b64_data = base64.b64encode(b"test data").decode()
+            result = client.upload_file("123", {"base64": b64_data, "filename": "screenshot.png"})
+
+            assert result["markdown"] == "![screenshot](/uploads/def456/screenshot.png)"
+
+    def test_upload_file_invalid_base64(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test that invalid base64 data raises ValueError."""
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+
+        with pytest.raises(ValueError, match="Invalid base64"):
+            client.upload_file("123", {"base64": "not-valid-base64!!!", "filename": "test.png"})
+
+    def test_upload_file_file_not_found(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test that non-existent file path raises FileNotFoundError."""
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+
+        with pytest.raises(FileNotFoundError):
+            client.upload_file("123", {"path": "/nonexistent/file.png"})
+
+    def test_upload_file_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+        """Test that HTTP errors are raised."""
+        test_file = tmp_path / "test.png"
+        test_file.write_bytes(b"content")
+
+        with patch("gitlab_mcp.httpx.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 413
+            mock_response.text = "File too large"
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Too large", request=MagicMock(), response=mock_response
+            )
+            mock_post.return_value = mock_response
+
+            from gitlab_mcp import GitLabClient
+
+            client = GitLabClient(validate=False)
+
+            with pytest.raises(httpx.HTTPStatusError):
+                client.upload_file("123", {"path": str(test_file)})
+
+
+class TestProcessImages:
+    """Tests for process_images helper function.
+
+    Note: process_images uses the global gitlab_client, so these tests
+    mock gitlab_client after the module is imported.
+    """
+
+    def test_process_images_empty_list(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test that empty images list returns empty string."""
+        from gitlab_mcp import process_images
+
+        result = process_images("123", [])
+        assert result == ""
+
+    def test_process_images_none(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test that None images returns empty string."""
+        from gitlab_mcp import process_images
+
+        result = process_images("123", None)
+        assert result == ""
+
+    def test_process_images_single_image(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+        """Test processing a single image."""
+        test_file = tmp_path / "image.png"
+        test_file.write_bytes(b"image data")
+
+        upload_response = {
+            "alt": "image",
+            "url": "/uploads/abc/image.png",
+            "markdown": "![image](/uploads/abc/image.png)",
+        }
+
+        with patch("gitlab_mcp.gitlab_client") as mock_client:
+            mock_client.upload_file.return_value = upload_response
+
+            from gitlab_mcp import process_images
+
+            result = process_images("123", [{"path": str(test_file)}])
+
+            assert result == "\n\n![image](/uploads/abc/image.png)"
+
+    def test_process_images_with_custom_alt(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+        """Test that custom alt text is used."""
+        test_file = tmp_path / "screenshot.png"
+        test_file.write_bytes(b"image data")
+
+        upload_response = {
+            "alt": "screenshot",
+            "url": "/uploads/abc/screenshot.png",
+        }
+
+        with patch("gitlab_mcp.gitlab_client") as mock_client:
+            mock_client.upload_file.return_value = upload_response
+
+            from gitlab_mcp import process_images
+
+            result = process_images("123", [{"path": str(test_file), "alt": "My custom alt text"}])
+
+            assert "![My custom alt text]" in result
+
+    def test_process_images_multiple(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+        """Test processing multiple images."""
+        test_file1 = tmp_path / "img1.png"
+        test_file2 = tmp_path / "img2.png"
+        test_file1.write_bytes(b"image1")
+        test_file2.write_bytes(b"image2")
+
+        upload_responses = [
+            {"alt": "img1", "url": "/uploads/a/img1.png"},
+            {"alt": "img2", "url": "/uploads/b/img2.png"},
+        ]
+
+        with patch("gitlab_mcp.gitlab_client") as mock_client:
+            mock_client.upload_file.side_effect = upload_responses
+
+            from gitlab_mcp import process_images
+
+            result = process_images(
+                "123", [{"path": str(test_file1)}, {"path": str(test_file2)}]
+            )
+
+            assert "![img1]" in result
+            assert "![img2]" in result
+            assert result.startswith("\n\n")
+
+    def test_process_images_from_base64(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test processing image from base64."""
+        import base64
+
+        upload_response = {
+            "alt": "encoded",
+            "url": "/uploads/xyz/encoded.png",
+        }
+
+        with patch("gitlab_mcp.gitlab_client") as mock_client:
+            mock_client.upload_file.return_value = upload_response
+
+            from gitlab_mcp import process_images
+
+            b64_data = base64.b64encode(b"test").decode()
+            result = process_images(
+                "123", [{"base64": b64_data, "filename": "encoded.png"}]
+            )
+
+            assert "![encoded]" in result
