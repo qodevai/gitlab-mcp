@@ -662,9 +662,7 @@ class TestProcessImages:
 
             from gitlab_mcp import process_images
 
-            result = process_images(
-                "123", [{"path": str(test_file1)}, {"path": str(test_file2)}]
-            )
+            result = process_images("123", [{"path": str(test_file1)}, {"path": str(test_file2)}])
 
             assert "![img1]" in result
             assert "![img2]" in result
@@ -685,8 +683,6 @@ class TestProcessImages:
             from gitlab_mcp import process_images
 
             b64_data = base64.b64encode(b"test").decode()
-            result = process_images(
-                "123", [{"base64": b64_data, "filename": "encoded.png"}]
-            )
+            result = process_images("123", [{"base64": b64_data, "filename": "encoded.png"}])
 
             assert "![encoded]" in result

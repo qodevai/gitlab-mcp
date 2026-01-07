@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 import time
-from typing import Any, NotRequired
+from typing import Any, NotRequired, cast
 
 import httpx
 from dotenv import load_dotenv
@@ -57,6 +57,20 @@ class ImageFromBase64(TypedDict):
 
 # Union type for images parameter
 ImageInput = ImageFromPath | ImageFromBase64
+
+
+class DiffPosition(TypedDict):
+    """Position in a merge request diff for inline comments."""
+
+    file_path: str
+    new_line: NotRequired[int]
+    old_line: NotRequired[int]
+    new_line_content: NotRequired[str]
+    old_line_content: NotRequired[str]
+    base_sha: NotRequired[str]
+    head_sha: NotRequired[str]
+    start_sha: NotRequired[str]
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -468,6 +482,42 @@ class GitLabClient:
         encoded_tag = quote(tag_name, safe="")
         return self.get(f"/projects/{encoded_id}/releases/{encoded_tag}")
 
+    def get_file_content(self, project_id: str, file_path: str, ref: str) -> str:
+        """Get raw file content at a specific ref (commit SHA, branch, tag).
+
+        Args:
+            project_id: Project ID or path
+            file_path: Path to file in repository
+            ref: Git ref (commit SHA, branch name, or tag)
+
+        Returns:
+            Raw file content as string
+
+        Raises:
+            httpx.HTTPStatusError: If file not found or API request fails
+        """
+        from urllib.parse import quote
+
+        encoded_id = self._encode_project_id(project_id)
+        encoded_path = quote(file_path, safe="")
+        try:
+            logger.debug(f"GET /projects/{encoded_id}/repository/files/{encoded_path}/raw?ref={ref}")
+            response = self.client.get(
+                f"/projects/{encoded_id}/repository/files/{encoded_path}/raw",
+                params={"ref": ref},
+            )
+            response.raise_for_status()
+            return response.text
+        except httpx.HTTPStatusError as e:
+            logger.error(f"GitLab API error fetching file {file_path} at {ref}: {e.response.status_code}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error fetching file {file_path} at {ref}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error fetching file {file_path} at {ref}: {e}")
+            raise
+
     def create_mr_note(self, project_id: str, mr_iid: int, body: str) -> dict[str, Any]:
         """Create a comment/note on a merge request
 
@@ -545,6 +595,74 @@ class GitLabClient:
             raise
         except Exception as e:
             logger.exception(f"Unexpected error while replying to discussion {discussion_id} on MR !{mr_iid}: {e}")
+            raise
+
+    def create_mr_discussion(
+        self,
+        project_id: str,
+        mr_iid: int,
+        body: str,
+        position: DiffPosition | None = None,
+    ) -> dict[str, Any]:
+        """Create a discussion on a merge request, optionally as an inline comment on a specific line
+
+        Args:
+            project_id: Project ID or path
+            mr_iid: Merge request IID
+            body: Comment text (supports Markdown)
+            position: Position for inline comments (file path, line numbers, and commit SHAs)
+
+        Returns:
+            Created discussion data
+
+        Raises:
+            httpx.HTTPStatusError: If discussion creation fails
+        """
+        encoded_id = self._encode_project_id(project_id)
+
+        data: dict[str, Any] = {"body": body}
+
+        if position:
+            gitlab_position: dict[str, Any] = {
+                "position_type": "text",
+                "new_path": position["file_path"],
+                "old_path": position["file_path"],
+            }
+            if "new_line" in position:
+                gitlab_position["new_line"] = position["new_line"]
+            if "old_line" in position:
+                gitlab_position["old_line"] = position["old_line"]
+            if "base_sha" in position:
+                gitlab_position["base_sha"] = position["base_sha"]
+            if "head_sha" in position:
+                gitlab_position["head_sha"] = position["head_sha"]
+            if "start_sha" in position:
+                gitlab_position["start_sha"] = position["start_sha"]
+            data["position"] = gitlab_position
+
+        try:
+            if position:
+                logger.info(
+                    f"Creating inline discussion on {position['file_path']} in MR !{mr_iid} in project {project_id}"
+                )
+            else:
+                logger.info(f"Creating discussion on MR !{mr_iid} in project {project_id}")
+            response = self.client.post(
+                f"/projects/{encoded_id}/merge_requests/{mr_iid}/discussions",
+                json=data,
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully created discussion on MR !{mr_iid}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text[:500] if e.response.text else "No error details"
+            logger.error(f"Failed to create discussion on MR !{mr_iid}: {e.response.status_code} - {error_detail}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Network error while creating discussion on MR !{mr_iid}: {e}")
+            raise
+        except Exception as e:
+            logger.exception(f"Unexpected error while creating discussion on MR !{mr_iid}: {e}")
             raise
 
     def resolve_discussion(self, project_id: str, mr_iid: int, discussion_id: str, resolved: bool) -> dict[str, Any]:
@@ -1698,7 +1816,7 @@ class GitLabClient:
 
         if "path" in source:
             # FileFromPath variant - read file from disk
-            file_path = source["path"]
+            file_path = cast(FileFromPath, source)["path"]
             with open(file_path, "rb") as f:
                 file_content = f.read()
             filename = os.path.basename(file_path)
@@ -1828,7 +1946,7 @@ def process_images(project_id: str, images: list[ImageInput] | None) -> str:
     for img in images:
         # Convert ImageInput to FileSource (strip alt text for upload)
         if "path" in img:
-            source: FileSource = {"path": img["path"]}
+            source: FileSource = {"path": cast(ImageFromPath, img)["path"]}
         else:
             source = {"base64": img["base64"], "filename": img["filename"]}
 
@@ -2275,6 +2393,7 @@ TOOLS - Perform actions (all support "current"):
 - close_merge_request(project_id, mr_iid) - Close an MR (supports project_id="current", mr_iid="current")
 - update_merge_request(project_id, mr_iid, title, description, ..., images) - Update MR title, description, or other properties (supports project_id="current", mr_iid="current")
 - reply_to_discussion(project_id, mr_iid, discussion_id, comment, images) - Reply to a discussion thread (supports project_id="current", mr_iid="current")
+- create_inline_comment(project_id, mr_iid, comment, position, images) - Create inline comment on specific line in diff. position={file_path, new_line, old_line} where line numbers are 1-based. Can also use new_line_content/old_line_content to match by content instead of line number. (supports project_id="current", mr_iid="current")
 - wait_for_pipeline(project_id, pipeline_id=None, mr_iid=None, ...) - **PRIMARY METHOD for pipeline monitoring** - Wait for pipeline to complete after pushing code. Automatically polls and returns final status with failed job logs. DO NOT manually poll pipeline status in loops. (supports project_id="current", mr_iid="current")
 - set_project_ci_variable(project_id, key, value, ...) - Set CI/CD variable (supports project_id="current")
 - download_artifact(project_id, job_id, artifact_path, destination=None) - Download artifact to local filesystem for shell analysis (grep, wc, etc.). Returns file path. (supports project_id="current")
@@ -2293,6 +2412,8 @@ Examples:
 - "Create MR for current branch" → create_merge_request("current", "Add new feature")
 - "Create MR from feature to dev" → create_merge_request("current", "Bug fix", source_branch="feature", target_branch="dev")
 - "Comment on my MR saying 'LGTM'" → comment_on_merge_request("current", "current", "LGTM")
+- "Add inline comment on line 42 of src/main.py" → create_inline_comment("current", "current", "Consider refactoring this", {"file_path": "src/main.py", "new_line": 42})
+- "Comment on the line with 'def main():'" → create_inline_comment("current", "current", "Add docstring", {"file_path": "src/main.py", "new_line_content": "def main():"})
 - "Merge MR !20 in project qodev/handbook" → merge_merge_request("qodev/handbook", 20)
 - "Close my MR" → close_merge_request("current", "current")
 - "Close MR !20 in project qodev/handbook" → close_merge_request("qodev/handbook", 20)
@@ -3456,6 +3577,204 @@ async def reply_to_discussion(
         }
 
 
+def resolve_line_from_content(file_content: str, target_content: str) -> tuple[int | None, int]:
+    """Find line number (1-based) matching content, ignoring leading/trailing whitespace.
+
+    Args:
+        file_content: Full file content
+        target_content: Content to search for
+
+    Returns:
+        Tuple of (line_number, match_count) where line_number is the 1-based line number
+        if exactly one match found, None otherwise. match_count is the number of matches.
+    """
+    target_stripped = target_content.strip()
+    matches = []
+    for i, line in enumerate(file_content.splitlines(), start=1):
+        if line.strip() == target_stripped:
+            matches.append(i)
+
+    if len(matches) == 1:
+        return matches[0], 1
+    return None, len(matches)
+
+
+def resolve_content_to_line(
+    project_id: str,
+    file_path: str,
+    ref: str,
+    content: str,
+    version_label: str = "",
+) -> tuple[int, None] | tuple[None, dict[str, Any]]:
+    """Resolve line content to a line number by fetching file and matching.
+
+    Args:
+        project_id: Resolved project ID
+        file_path: Path to file in repository
+        ref: Git ref (commit SHA) to fetch file at
+        content: Content to search for
+        version_label: Label for error messages (e.g., "(base version)")
+
+    Returns:
+        Tuple of (line_number, None) on success, or (None, error_dict) on failure.
+    """
+    file_content = gitlab_client.get_file_content(project_id, file_path, ref)
+    line_num, match_count = resolve_line_from_content(file_content, content)
+    if line_num is not None:
+        return line_num, None
+
+    suffix = f" {version_label}" if version_label else ""
+    if match_count == 0:
+        return None, {
+            "success": False,
+            "error": f"Could not find line matching content '{content}' in {file_path}{suffix}",
+        }
+    return None, {
+        "success": False,
+        "error": f"Content '{content}' matches {match_count} lines in {file_path}{suffix}. Use line number instead.",
+    }
+
+
+@mcp.tool()
+async def create_inline_comment(
+    ctx: Context,
+    project_id: str,
+    mr_iid: str | int,
+    comment: str,
+    position: DiffPosition,
+    images: list[ImageInput] | None = None,
+) -> dict[str, Any]:
+    """Create an inline comment on a specific line in a merge request diff
+
+    Args:
+        project_id: Project ID, path, or "current" (e.g., "mygroup/myproject", "123", or "current")
+        mr_iid: Merge request IID or "current" (the !number, or "current" for current branch MR)
+        comment: Comment text to post (supports Markdown formatting)
+        position: Position specifying where to place the comment. Must include:
+            - file_path: Path to the file in the diff
+            - new_line: Line number (1-based) in the new version (for added/unchanged lines)
+            - old_line: Line number (1-based) in the old version (for deleted/unchanged lines)
+            - new_line_content: Alternative to new_line - content to match (whitespace-insensitive, must be unique)
+            - old_line_content: Alternative to old_line - content to match (whitespace-insensitive, must be unique)
+            At least one of new_line or old_line must be provided.
+            Optionally include base_sha, head_sha, start_sha (auto-fetched from MR if omitted)
+        images: List of images to attach. Each image is either {"path": "/local/file.png"}
+                or {"base64": "...", "filename": "name.png", "alt": "optional alt text"}
+
+    Returns:
+        Result of comment operation with created discussion details
+
+    Raises:
+        Error if inline comment creation fails
+    """
+    resolved_project_id, _ = await resolve_project_id(ctx, project_id)
+    if not resolved_project_id:
+        return {"success": False, "error": f"Could not resolve project '{project_id}'"}
+
+    resolved_mr_iid = await resolve_mr_iid(ctx, resolved_project_id, str(mr_iid))
+    if not resolved_mr_iid:
+        return {"success": False, "error": f"Could not resolve MR IID '{mr_iid}'"}
+
+    # Check if we have any line reference (number or content)
+    has_new_line_ref = "new_line" in position or "new_line_content" in position
+    has_old_line_ref = "old_line" in position or "old_line_content" in position
+    if not has_new_line_ref and not has_old_line_ref:
+        return {
+            "success": False,
+            "error": "At least one of new_line, old_line, new_line_content, or old_line_content must be provided",
+        }
+
+    try:
+        # Fetch MR to get diff_refs (needed for SHAs and potentially content resolution)
+        mr = gitlab_client.get_merge_request(resolved_project_id, resolved_mr_iid)
+        diff_refs = mr.get("diff_refs", {})
+        if not diff_refs:
+            return {
+                "success": False,
+                "error": "Could not get diff_refs from MR. The MR may not have any changes.",
+            }
+
+        # Resolve content to line numbers if needed
+        file_path = position["file_path"]
+        if not file_path or not file_path.strip():
+            return {"success": False, "error": "file_path must be a non-empty string"}
+
+        # Resolve new_line from content if needed
+        if "new_line_content" in position and "new_line" not in position:
+            head_sha = position.get("head_sha") or diff_refs.get("head_sha")
+            resolved_line, error = resolve_content_to_line(
+                resolved_project_id, file_path, head_sha, position["new_line_content"]
+            )
+            if error:
+                return error
+            assert resolved_line is not None  # Guaranteed when error is None
+            position = {**position, "new_line": resolved_line}
+
+        # Resolve old_line from content if needed
+        if "old_line_content" in position and "old_line" not in position:
+            base_sha = position.get("base_sha") or diff_refs.get("base_sha")
+            resolved_line, error = resolve_content_to_line(
+                resolved_project_id, file_path, base_sha, position["old_line_content"], "(base version)"
+            )
+            if error:
+                return error
+            assert resolved_line is not None  # Guaranteed when error is None
+            position = {**position, "old_line": resolved_line}
+
+        # Validate that at least one line number is now provided (after content resolution)
+        if "new_line" not in position and "old_line" not in position:
+            return {
+                "success": False,
+                "error": "Could not resolve any line number from provided content",
+            }
+
+        # Fill in SHAs if not provided
+        position = {
+            **position,
+            "base_sha": position.get("base_sha") or diff_refs.get("base_sha"),
+            "head_sha": position.get("head_sha") or diff_refs.get("head_sha"),
+            "start_sha": position.get("start_sha") or diff_refs.get("start_sha"),
+        }
+
+        # Process images and append markdown to comment
+        image_markdown = process_images(resolved_project_id, images)
+        final_comment = comment + image_markdown if image_markdown else comment
+
+        discussion = gitlab_client.create_mr_discussion(
+            project_id=resolved_project_id,
+            mr_iid=resolved_mr_iid,
+            body=final_comment,
+            position=position,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully created inline comment on {position['file_path']} in MR !{resolved_mr_iid}",
+            "discussion": discussion,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "file_path": position["file_path"],
+            "new_line": position.get("new_line"),
+            "old_line": position.get("old_line"),
+        }
+    except httpx.HTTPStatusError as e:
+        error_msg = e.response.text if e.response.text else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to create inline comment on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
+            "status_code": e.response.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error while creating inline comment on MR !{resolved_mr_iid} in project {project_id}: {str(e)}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+
+
 @mcp.tool()
 async def resolve_discussion_thread(
     ctx: Context, project_id: str, mr_iid: str | int, discussion_id: str, resolved: bool = True
@@ -3805,7 +4124,7 @@ async def update_merge_request(
             current_mr = gitlab_client.get_merge_request(resolved_project_id, resolved_mr_iid)
             base_description = current_mr.get("description", "") or ""
             final_description = base_description + image_markdown
-        elif image_markdown:
+        elif image_markdown and description is not None:
             final_description = description + image_markdown
         else:
             final_description = description
@@ -4395,7 +4714,7 @@ async def update_issue(
             current_issue = gitlab_client.get_issue(resolved_project_id, issue_iid)
             base_description = current_issue.get("description", "") or ""
             final_description = base_description + image_markdown
-        elif image_markdown:
+        elif image_markdown and description is not None:
             final_description = description + image_markdown
         else:
             final_description = description
