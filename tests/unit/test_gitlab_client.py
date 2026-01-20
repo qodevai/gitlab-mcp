@@ -301,27 +301,47 @@ class TestDiscussionFiltering:
         assert is_user_discussion(discussion) is True
 
     def test_filter_actionable_discussions(self) -> None:
-        """Should only include unresolved user discussions."""
+        """Should only include unresolved, resolvable user discussions."""
         from gitlab_mcp import filter_actionable_discussions
 
         discussions = [
-            {"notes": [{"system": False, "resolved": False, "body": "Fix this"}]},  # KEEP
-            {"notes": [{"system": False, "resolved": True, "body": "Done"}]},  # EXCLUDE (resolved)
-            {"notes": [{"system": True, "resolved": False, "body": "assigned"}]},  # EXCLUDE (system)
-            {"notes": [{"system": True, "resolved": True, "body": "merged"}]},  # EXCLUDE (both)
+            {"notes": [{"system": False, "resolvable": True, "resolved": False, "body": "Fix this"}]},  # KEEP
+            {"notes": [{"system": False, "resolvable": True, "resolved": True, "body": "Done"}]},  # EXCLUDE (resolved)
+            {
+                "notes": [{"system": True, "resolvable": True, "resolved": False, "body": "assigned"}]
+            },  # EXCLUDE (system)
+            {"notes": [{"system": True, "resolvable": True, "resolved": True, "body": "merged"}]},  # EXCLUDE (both)
             {"notes": []},  # EXCLUDE (empty)
         ]
         result = filter_actionable_discussions(discussions)
         assert len(result) == 1
         assert result[0]["notes"][0]["body"] == "Fix this"
 
-    def test_filter_actionable_discussions_backward_compatible(self) -> None:
-        """Should handle old API format without 'system' field."""
+    def test_filter_actionable_discussions_excludes_non_resolvable(self) -> None:
+        """Should exclude discussions that are not resolvable (like individual_note comments)."""
         from gitlab_mcp import filter_actionable_discussions
 
+        discussions = [
+            # individual_note comments have resolvable=false and should be excluded
+            {"notes": [{"system": False, "resolvable": False, "resolved": False, "body": "Summary comment"}]},
+            {"notes": [{"system": False, "resolvable": False, "resolved": False, "body": "Ship it!"}]},
+            # Resolvable DiffNote discussion that IS unresolved - should be kept
+            {"notes": [{"system": False, "resolvable": True, "resolved": False, "body": "Fix this bug"}]},
+            # Resolvable DiffNote discussion that is resolved - should be excluded
+            {"notes": [{"system": False, "resolvable": True, "resolved": True, "body": "Fixed"}]},
+        ]
+        result = filter_actionable_discussions(discussions)
+        assert len(result) == 1
+        assert result[0]["notes"][0]["body"] == "Fix this bug"
+
+    def test_filter_actionable_discussions_backward_compatible(self) -> None:
+        """Should handle old API format without 'resolvable' field (defaults to false = excluded)."""
+        from gitlab_mcp import filter_actionable_discussions
+
+        # Without resolvable field, defaults to False and should be excluded
         discussions = [{"notes": [{"resolved": False, "body": "Comment"}]}]
         result = filter_actionable_discussions(discussions)
-        assert len(result) == 1  # Should include it
+        assert len(result) == 0  # Should exclude (not resolvable)
 
 
 class TestMergeRequestOperations:

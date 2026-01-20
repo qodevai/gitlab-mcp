@@ -1909,7 +1909,8 @@ def filter_actionable_discussions(discussions: list[dict[str, Any]]) -> list[dic
 
     Returns discussions that are:
     1. User-created (not system-generated)
-    2. Unresolved (need attention)
+    2. Resolvable (can be resolved - excludes individual_note comments)
+    3. Unresolved (need attention)
 
     Args:
         discussions: List of GitLab discussion objects
@@ -1917,7 +1918,16 @@ def filter_actionable_discussions(discussions: list[dict[str, Any]]) -> list[dic
     Returns:
         Filtered list containing only unresolved user discussions
     """
-    return [d for d in discussions if is_user_discussion(d) and not d.get("notes", [{}])[0].get("resolved", False)]
+    result = []
+    for d in discussions:
+        if not is_user_discussion(d):
+            continue
+        first_note = d.get("notes", [{}])[0]
+        # Only count as unresolved if the note is resolvable AND not resolved
+        # Notes with resolvable=false (like individual_note comments) can never be resolved
+        if first_note.get("resolvable", False) and not first_note.get("resolved", False):
+            result.append(d)
+    return result
 
 
 def process_images(project_id: str, images: list[ImageInput] | None) -> str:

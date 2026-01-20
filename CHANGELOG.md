@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Supports Markdown formatting in comments
 
 ### Fixed
+- **Non-resolvable discussions incorrectly counted as unresolved** - Fixed `filter_actionable_discussions` to only count discussions with `resolvable: true` as unresolved. Individual note comments (like summary comments) have `resolvable: false` and can never be resolved, so they should not block MR merging or appear in unresolved counts.
 - **MR Squash Settings Not Applied** - Workaround for GitLab API bug that ignores project squash settings
   - GitLab API doesn't respect project's "Squash commits" setting when creating MRs via API
   - See upstream bug: https://gitlab.com/gitlab-org/gitlab/-/issues/385301
