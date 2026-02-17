@@ -3,8 +3,9 @@
 import functools
 from typing import Any, Callable, TypeVar
 
-import httpx
 from fastmcp import Context
+
+from gitlab_client import APIError, GitLabError
 
 # Maximum length for error details in responses
 MAX_ERROR_DETAIL_LENGTH = 500
@@ -19,7 +20,7 @@ def handle_gitlab_errors(operation: str) -> Callable[[F], F]:
         operation: Description of the operation for error messages (e.g., "create MR", "close issue")
 
     Returns:
-        Decorated function that catches httpx errors and returns standardized error responses
+        Decorated function that catches GitLab errors and returns standardized error responses
     """
 
     def decorator(func: F) -> F:
@@ -27,12 +28,16 @@ def handle_gitlab_errors(operation: str) -> Callable[[F], F]:
         async def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
             try:
                 return await func(*args, **kwargs)
-            except httpx.HTTPStatusError as e:
-                error_msg = e.response.text[:MAX_ERROR_DETAIL_LENGTH] if e.response.text else str(e)
+            except APIError as e:
                 return {
                     "success": False,
-                    "error": f"Failed to {operation}: {error_msg}",
-                    "status_code": e.response.status_code,
+                    "error": f"Failed to {operation}: {e}",
+                    "status_code": e.status_code,
+                }
+            except GitLabError as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to {operation}: {e}",
                 }
             except Exception as e:
                 return {

@@ -2,10 +2,13 @@
 
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from gitlab_mcp.models import FileSource, ImageFromPath, ImageInput
+from gitlab_client import FileSource
+from gitlab_client.models import FileFromPath
+
+from gitlab_mcp.models import ImageFromPath, ImageInput
 
 if TYPE_CHECKING:
-    from gitlab_mcp.client import GitLabClient
+    from gitlab_client import GitLabClient
 
 # Separator between content and appended images
 IMAGE_MARKDOWN_SEPARATOR = "\n\n"
@@ -64,7 +67,6 @@ def process_images(client: "GitLabClient", project_id: str, images: list[ImageIn
     Raises:
         FileNotFoundError: If a file path doesn't exist
         ValueError: If base64 data is invalid
-        httpx.HTTPStatusError: If upload fails
     """
     if not images:
         return ""

@@ -5,9 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import APIError, GitLabError, NotFoundError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.resolvers import resolve_mr_iid, resolve_project_id
 
@@ -118,12 +118,18 @@ async def wait_for_pipeline(
             **result,
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to wait for pipeline {resolved_pipeline_id} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to wait for pipeline {resolved_pipeline_id} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "pipeline_id": resolved_pipeline_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to wait for pipeline {resolved_pipeline_id} in project {project_id}: {e}",
             "project_id": project_id,
             "pipeline_id": resolved_pipeline_id,
         }
@@ -192,17 +198,17 @@ async def download_artifact(
             "artifact_path": artifact_path,
         }
 
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return {
-                "success": False,
-                "error": f"Artifact '{artifact_path}' not found in job {job_id}",
-                "job_id": job_id,
-                "artifact_path": artifact_path,
-            }
+    except NotFoundError:
         return {
             "success": False,
-            "error": f"Failed to download artifact: HTTP {e.response.status_code}",
+            "error": f"Artifact '{artifact_path}' not found in job {job_id}",
+            "job_id": job_id,
+            "artifact_path": artifact_path,
+        }
+    except APIError as e:
+        return {
+            "success": False,
+            "error": f"Failed to download artifact: HTTP {e.status_code}",
             "job_id": job_id,
             "artifact_path": artifact_path,
         }
@@ -252,12 +258,18 @@ async def retry_job(
             "project_id": project_id,
             "original_job_id": job_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to retry job {job_id} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to retry job {job_id} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "job_id": job_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to retry job {job_id} in project {project_id}: {e}",
             "project_id": project_id,
             "job_id": job_id,
         }

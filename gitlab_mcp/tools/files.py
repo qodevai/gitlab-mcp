@@ -2,10 +2,9 @@
 
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
-from gitlab_mcp.models import FileSource
+from gitlab_client import APIError, FileSource, GitLabError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.resolvers import resolve_project_id
 
@@ -59,12 +58,17 @@ async def upload_file(
             "error": f"File not found: {str(e)}",
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to upload file: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to upload file: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to upload file: {e}",
             "project_id": project_id,
         }
     except Exception as e:

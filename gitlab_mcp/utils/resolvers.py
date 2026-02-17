@@ -4,14 +4,14 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-import httpx
 from fastmcp import Context
 from mcp import types
 
+from gitlab_client import APIError, GitLabError
 from gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
 
 if TYPE_CHECKING:
-    from gitlab_mcp.client import GitLabClient
+    from gitlab_client import GitLabClient
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +106,8 @@ async def detect_current_repo(ctx: Context, client: "GitLabClient") -> dict[str,
                 project = client.get_project(project_path)
                 logger.info(f"Detected GitLab project: {project.get('path_with_namespace')} from {git_root}")
                 return {"git_root": git_root, "project_path": project_path, "project": project}
-            except httpx.HTTPStatusError as e:
-                logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e.response.status_code}")
+            except GitLabError as e:
+                logger.warning(f"Failed to fetch project '{project_path}' from GitLab: {e}")
                 continue
             except Exception as e:
                 logger.debug(f"Error fetching project '{project_path}': {e}")
@@ -142,8 +142,8 @@ def find_mr_for_branch(client: "GitLabClient", project_id: str, branch_name: str
                 return mr
         logger.debug(f"No open MR found for branch '{branch_name}'")
         return None
-    except httpx.HTTPStatusError as e:
-        logger.error(f"API error while searching for MR: {e.response.status_code}")
+    except GitLabError as e:
+        logger.error(f"API error while searching for MR: {e}")
         return None
     except Exception as e:
         logger.exception(f"Error finding MR for branch '{branch_name}': {e}")

@@ -9,15 +9,20 @@ This package provides a FastMCP server for GitLab operations including:
 - File uploads
 """
 
-# Re-export httpx for test patching compatibility
-import httpx
-
-from gitlab_mcp.client import GitLabClient
-from gitlab_mcp.models import (
+from gitlab_client import (
+    APIError,
+    AuthenticationError,
+    ConfigurationError,
     DiffPosition,
     FileFromBase64,
     FileFromPath,
     FileSource,
+    GitLabClient,
+    GitLabError,
+    NotFoundError,
+)
+
+from gitlab_mcp.models import (
     ImageFromBase64,
     ImageFromPath,
     ImageInput,
@@ -54,20 +59,25 @@ __all__ = [
     "main",
     # Client
     "GitLabClient",
-    # Models
+    # Exceptions
+    "GitLabError",
+    "APIError",
+    "AuthenticationError",
+    "NotFoundError",
+    "ConfigurationError",
+    # Models (from gitlab-client library)
     "FileFromPath",
     "FileFromBase64",
     "FileSource",
+    "DiffPosition",
+    # Models (MCP-specific)
     "ImageFromPath",
     "ImageFromBase64",
     "ImageInput",
-    "DiffPosition",
     # Utils (for backward compatibility)
     "is_user_discussion",
     "filter_actionable_discussions",
     "process_images",
     "get_current_branch",
     "parse_gitlab_remote",
-    # Re-exported for test patching
-    "httpx",
 ]

@@ -2,9 +2,9 @@
 
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import APIError, GitLabError
 from gitlab_mcp.models import ImageInput
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.images import prepare_description_with_images, process_images
@@ -68,12 +68,17 @@ async def create_issue(
             },
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to create issue in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to create issue in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to create issue in project {project_id}: {e}",
             "project_id": project_id,
         }
     except Exception as e:
@@ -152,12 +157,18 @@ async def update_issue(
             "project_id": project_id,
             "issue_iid": issue_iid,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to update issue #{issue_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to update issue #{issue_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to update issue #{issue_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "issue_iid": issue_iid,
         }
@@ -207,12 +218,18 @@ async def close_issue(
             "project_id": project_id,
             "issue_iid": issue_iid,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to close issue #{issue_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to close issue #{issue_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to close issue #{issue_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "issue_iid": issue_iid,
         }
@@ -270,12 +287,18 @@ async def comment_on_issue(
             "project_id": project_id,
             "issue_iid": issue_iid,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to comment on issue #{issue_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to comment on issue #{issue_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "issue_iid": issue_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to comment on issue #{issue_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "issue_iid": issue_iid,
         }

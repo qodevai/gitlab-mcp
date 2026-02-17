@@ -6,9 +6,9 @@ import logging
 from typing import Any
 from urllib.parse import parse_qs
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import APIError, GitLabError, NotFoundError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.errors import create_repo_not_found_error
 from gitlab_mcp.utils.resolvers import resolve_project_id
@@ -94,8 +94,10 @@ async def project_job_artifacts(ctx: Context, project_id: str, job_id: str) -> s
         }
 
         return json.dumps(result, indent=2)
-    except httpx.HTTPStatusError as e:
-        return json.dumps({"error": f"Failed to get job {job_id}: {e.response.status_code}"})
+    except APIError as e:
+        return json.dumps({"error": f"Failed to get job {job_id}: {e.status_code}"})
+    except GitLabError as e:
+        return json.dumps({"error": f"Failed to get job {job_id}: {e}"})
     except Exception as e:
         return json.dumps({"error": f"Unexpected error: {str(e)}"})
 
@@ -185,10 +187,9 @@ async def project_job_artifact(ctx: Context, project_id: str, job_id: str, artif
             encoded = base64.b64encode(content_bytes).decode("utf-8")
             return f"[Binary file - base64 encoded]\nSize: {len(content_bytes)} bytes\n\n{encoded}"
 
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return f"Error: Artifact '{artifact_path}' not found in job {job_id}"
-        else:
-            return f"Error: Failed to get artifact (HTTP {e.response.status_code})"
+    except NotFoundError:
+        return f"Error: Artifact '{artifact_path}' not found in job {job_id}"
+    except APIError as e:
+        return f"Error: Failed to get artifact (HTTP {e.status_code})"
     except Exception as e:
         return f"Error: {str(e)}"

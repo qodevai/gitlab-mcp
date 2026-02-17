@@ -20,10 +20,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "httpx>=0.28.1",
+    "gitlab-client",
     "fastmcp>=2.2.5",
-    "python-dotenv>=1.1.0",
 ]
+
+[tool.uv.sources]
+gitlab-client = { path = "../../libs/gitlab" }
 
 [project.urls]
 Homepage = "https://github.com/janscheffler/gitlab-mcp"

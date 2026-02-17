@@ -3,9 +3,9 @@
 import logging
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import NotFoundError, GitLabError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.errors import create_repo_not_found_error
 from gitlab_mcp.utils.resolvers import resolve_project_id
@@ -52,10 +52,10 @@ async def project_issue(ctx: Context, project_id: str, issue_iid: str) -> dict[s
     try:
         issue = gitlab_client.get_issue(resolved_id, iid)
         return issue
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return {"error": f"Issue #{iid} not found in project"}
-        return {"error": f"Failed to fetch issue #{iid}: {e.response.status_code}"}
+    except NotFoundError:
+        return {"error": f"Issue #{iid} not found in project"}
+    except GitLabError as e:
+        return {"error": f"Failed to fetch issue #{iid}: {e}"}
     except Exception as e:
         logger.error(f"Error fetching issue #{iid} for project {project_id}: {e}")
         return {"error": f"Failed to fetch issue: {str(e)}"}
@@ -81,10 +81,10 @@ async def project_issue_notes(ctx: Context, project_id: str, issue_iid: str) -> 
     try:
         notes = gitlab_client.get_issue_notes(resolved_id, iid)
         return notes
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return {"error": f"Issue #{iid} not found in project"}
-        return {"error": f"Failed to fetch notes for issue #{iid}: {e.response.status_code}"}
+    except NotFoundError:
+        return {"error": f"Issue #{iid} not found in project"}
+    except GitLabError as e:
+        return {"error": f"Failed to fetch notes for issue #{iid}: {e}"}
     except Exception as e:
         logger.error(f"Error fetching notes for issue #{iid} in project {project_id}: {e}")
         return {"error": f"Failed to fetch notes: {str(e)}"}

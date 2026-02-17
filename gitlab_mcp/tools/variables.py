@@ -2,9 +2,9 @@
 
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import APIError, GitLabError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.resolvers import resolve_project_id
 
@@ -73,12 +73,17 @@ async def set_project_ci_variable(
             },
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to set CI/CD variable '{key}' in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to set CI/CD variable '{key}' in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to set CI/CD variable '{key}' in project {project_id}: {e}",
             "project_id": project_id,
         }
     except Exception as e:

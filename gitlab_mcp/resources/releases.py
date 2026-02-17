@@ -2,9 +2,9 @@
 
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import NotFoundError, GitLabError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.errors import create_repo_not_found_error
 from gitlab_mcp.utils.resolvers import resolve_project_id
@@ -31,7 +31,7 @@ async def project_release(ctx: Context, project_id: str, tag_name: str) -> dict[
 
     try:
         return gitlab_client.get_release(resolved_id, tag_name)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return {"error": f"Release with tag '{tag_name}' not found in project {project_id}"}
-        return {"error": f"Failed to fetch release '{tag_name}': {e.response.text[:200]}"}
+    except NotFoundError:
+        return {"error": f"Release with tag '{tag_name}' not found in project {project_id}"}
+    except GitLabError as e:
+        return {"error": f"Failed to fetch release '{tag_name}': {str(e)[:200]}"}

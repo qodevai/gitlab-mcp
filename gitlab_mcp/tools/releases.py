@@ -2,9 +2,9 @@
 
 from typing import Any
 
-import httpx
 from fastmcp import Context
 
+from gitlab_client import APIError, GitLabError
 from gitlab_mcp.models import ImageInput
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.git import get_current_branch
@@ -89,12 +89,18 @@ async def create_release(
             },
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to create release '{tag_name}' in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to create release '{tag_name}' in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "tag_name": tag_name,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to create release '{tag_name}' in project {project_id}: {e}",
             "project_id": project_id,
             "tag_name": tag_name,
         }

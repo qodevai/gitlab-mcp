@@ -20,8 +20,11 @@ def mock_env_vars() -> Generator[dict[str, str], None, None]:
 
 @pytest.fixture
 def mock_httpx_client() -> Generator[MagicMock, None, None]:
-    """Mock httpx.Client for unit tests."""
-    with patch("gitlab_mcp.httpx.Client") as mock_client_class:
+    """Mock httpx.Client for unit tests.
+
+    Patches at the gitlab_client._base module level where httpx.Client is actually called.
+    """
+    with patch("gitlab_client._base.httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         yield mock_client

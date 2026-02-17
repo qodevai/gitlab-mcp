@@ -2,7 +2,7 @@
 
 from fastmcp import FastMCP
 
-from gitlab_mcp.client import GitLabClient
+from gitlab_client import GitLabClient
 
 # Create FastMCP server with instructions
 mcp = FastMCP(

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
+from gitlab_client import APIError, AuthenticationError, ConfigurationError, NotFoundError
+
 
 class TestGitLabClientInit:
     """Tests for GitLabClient initialization."""
@@ -16,13 +18,13 @@ class TestGitLabClientInit:
         # Pass no token and ensure GITLAB_TOKEN env var is cleared
         with (
             patch.dict("os.environ", {"GITLAB_TOKEN": ""}, clear=False),
-            pytest.raises(ValueError, match="GITLAB_TOKEN"),
+            pytest.raises(ConfigurationError, match="GITLAB_TOKEN"),
         ):
             GitLabClient(token=None, validate=False)
 
     def test_init_with_token_env_var(self, mock_env_vars: dict) -> None:
         """Test initialization with token from environment."""
-        with patch("gitlab_mcp.httpx.Client"):
+        with patch("gitlab_client._base.httpx.Client"):
             from gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
@@ -31,7 +33,7 @@ class TestGitLabClientInit:
 
     def test_init_with_explicit_token(self, mock_env_vars: dict) -> None:
         """Test initialization with explicitly passed token."""
-        with patch("gitlab_mcp.httpx.Client"):
+        with patch("gitlab_client._base.httpx.Client"):
             from gitlab_mcp import GitLabClient
 
             client = GitLabClient(token="explicit-token", validate=False)
@@ -42,14 +44,14 @@ class TestGitLabClientInit:
         with patch.dict("os.environ", {"GITLAB_TOKEN": "test", "GITLAB_URL": "invalid-url"}, clear=True):
             from gitlab_mcp import GitLabClient
 
-            with pytest.raises(ValueError, match="must start with http"):
+            with pytest.raises(ConfigurationError, match="must start with http"):
                 GitLabClient(validate=False)
 
     def test_init_strips_trailing_slash(self) -> None:
         """Test that trailing slash is stripped from base URL."""
         with (
             patch.dict("os.environ", {"GITLAB_TOKEN": "test", "GITLAB_URL": "https://gitlab.com/"}, clear=True),
-            patch("gitlab_mcp.httpx.Client"),
+            patch("gitlab_client._base.httpx.Client"),
         ):
             from gitlab_mcp import GitLabClient
 
@@ -114,8 +116,8 @@ class TestGitLabClientRequests:
 
         mock_httpx_client.get.assert_called_once_with("/projects", params={"owned": True})
 
-    def test_get_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
-        """Test GET request with HTTP error."""
+    def test_get_http_error_404(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test GET request with 404 error raises NotFoundError."""
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.text = "Not found"
@@ -128,8 +130,25 @@ class TestGitLabClientRequests:
 
         client = GitLabClient(validate=False)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(NotFoundError):
             client.get("/nonexistent")
+
+    def test_get_http_error_500(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+        """Test GET request with 500 error raises APIError."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server Error", request=MagicMock(), response=mock_response
+        )
+        mock_httpx_client.get.return_value = mock_response
+
+        from gitlab_mcp import GitLabClient
+
+        client = GitLabClient(validate=False)
+
+        with pytest.raises(APIError):
+            client.get("/error")
 
 
 class TestGitLabClientPagination:
@@ -403,7 +422,7 @@ class TestMergeRequestOperations:
         from gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(NotFoundError):
             client.close_mr("123", 999)
 
     def test_create_mr_note_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
@@ -419,7 +438,7 @@ class TestMergeRequestOperations:
         from gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(APIError):
             client.create_mr_note("123", 1, "Comment")
 
 
@@ -459,7 +478,7 @@ class TestJobOperations:
         from gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(APIError):
             client.retry_job("123", 1001)
 
     def test_retry_job_not_found(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
@@ -475,7 +494,7 @@ class TestJobOperations:
         from gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(NotFoundError):
             client.retry_job("123", 99999)
 
     def test_retry_job_encodes_project_path(
@@ -519,7 +538,7 @@ class TestFileUploadOperations:
             "markdown": "![test_image](/uploads/abc123/test_image.png)",
         }
 
-        with patch("gitlab_mcp.httpx.post") as mock_post:
+        with patch("gitlab_client._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.json.return_value = upload_response
             mock_response.raise_for_status = MagicMock()
@@ -551,7 +570,7 @@ class TestFileUploadOperations:
             "markdown": "![screenshot](/uploads/def456/screenshot.png)",
         }
 
-        with patch("gitlab_mcp.httpx.post") as mock_post:
+        with patch("gitlab_client._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.json.return_value = upload_response
             mock_response.raise_for_status = MagicMock()
@@ -584,11 +603,11 @@ class TestFileUploadOperations:
             client.upload_file("123", {"path": "/nonexistent/file.png"})
 
     def test_upload_file_http_error(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
-        """Test that HTTP errors are raised."""
+        """Test that HTTP errors are raised as APIError."""
         test_file = tmp_path / "test.png"
         test_file.write_bytes(b"content")
 
-        with patch("gitlab_mcp.httpx.post") as mock_post:
+        with patch("gitlab_client._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 413
             mock_response.text = "File too large"
@@ -601,7 +620,7 @@ class TestFileUploadOperations:
 
             client = GitLabClient(validate=False)
 
-            with pytest.raises(httpx.HTTPStatusError):
+            with pytest.raises(APIError):
                 client.upload_file("123", {"path": str(test_file)})
 
 

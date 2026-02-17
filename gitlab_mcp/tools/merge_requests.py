@@ -6,7 +6,8 @@ from typing import Any
 import httpx
 from fastmcp import Context
 
-from gitlab_mcp.models import DiffPosition, ImageInput
+from gitlab_client import APIError, DiffPosition, GitLabError
+from gitlab_mcp.models import ImageInput
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.git import get_current_branch
 from gitlab_mcp.utils.images import prepare_description_with_images, process_images
@@ -120,12 +121,18 @@ async def comment_on_merge_request(
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to comment on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to comment on MR !{resolved_mr_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to comment on MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
@@ -191,12 +198,19 @@ async def reply_to_discussion(
             "mr_iid": resolved_mr_iid,
             "discussion_id": discussion_id,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to reply to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to reply to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to reply to discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
             "discussion_id": discussion_id,
@@ -333,12 +347,18 @@ async def create_inline_comment(
             "new_line": position.get("new_line"),
             "old_line": position.get("old_line"),
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         return {
             "success": False,
-            "error": f"Failed to create inline comment on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to create inline comment on MR !{resolved_mr_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to create inline comment on MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
@@ -395,13 +415,21 @@ async def resolve_discussion_thread(
             "discussion_id": discussion_id,
             "resolved": resolved,
         }
-    except httpx.HTTPStatusError as e:
-        error_msg = e.response.text if e.response.text else str(e)
+    except APIError as e:
         action = "resolve" if resolved else "unresolve"
         return {
             "success": False,
-            "error": f"Failed to {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {error_msg}",
-            "status_code": e.response.status_code,
+            "error": f"Failed to {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {e}",
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+            "discussion_id": discussion_id,
+        }
+    except GitLabError as e:
+        action = "resolve" if resolved else "unresolve"
+        return {
+            "success": False,
+            "error": f"Failed to {action} discussion {discussion_id} on MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
             "discussion_id": discussion_id,
@@ -492,20 +520,20 @@ async def merge_merge_request(
             "merged_mr": result,
             "branch_removed": should_remove_source_branch,
         }
-    except httpx.HTTPStatusError as e:
+    except APIError as e:
         # Parse GitLab error response
         try:
-            error_json = json.loads(e.response.text)
+            error_json = json.loads(e.response_body)
             error_message = error_json.get("message", "Unknown error")
         except (json.JSONDecodeError, AttributeError):
-            error_message = e.response.text if e.response.text else str(e)
+            error_message = str(e)
 
         # Build helpful error message with context
         helpful_message = f"Failed to merge MR !{resolved_mr_iid} in project {project_id}: {error_message}"
         suggestions = []
 
         # Add context-specific suggestions
-        if e.response.status_code == 405 or e.response.status_code == 406:
+        if e.status_code in (405, 406):
             # Method Not Allowed or Not Acceptable - usually means merge is blocked
             if pipeline_status == "running":
                 helpful_message = (
@@ -536,7 +564,7 @@ async def merge_merge_request(
             "success": False,
             "error": helpful_message,
             "suggestions": suggestions,
-            "status_code": e.response.status_code,
+            "status_code": e.status_code,
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
@@ -553,6 +581,13 @@ async def merge_merge_request(
             }
 
         return response
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to merge MR !{resolved_mr_iid} in project {project_id}: {e}",
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
     except Exception as e:
         return {
             "success": False,
@@ -612,23 +647,30 @@ async def close_merge_request(
                 )
                 response["comment"] = note
                 response["message"] = f"Successfully closed MR !{resolved_mr_iid} with comment in project {project_id}"
-            except (httpx.HTTPStatusError, httpx.RequestError) as comment_error:
+            except (GitLabError, httpx.RequestError) as comment_error:
                 # Non-fatal: MR is closed, just warn about comment failure
                 response["warning"] = f"Failed to post closing comment: {str(comment_error)}"
 
         return response
-    except httpx.HTTPStatusError as e:
+    except APIError as e:
         # Parse GitLab error response
         try:
-            error_json = json.loads(e.response.text)
+            error_json = json.loads(e.response_body)
             error_message = error_json.get("message", "Unknown error")
         except (json.JSONDecodeError, AttributeError):
-            error_message = e.response.text if e.response.text else str(e)
+            error_message = str(e)
 
         return {
             "success": False,
             "error": f"Failed to close MR !{resolved_mr_iid} in project {project_id}: {error_message}",
-            "status_code": e.response.status_code,
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to close MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
@@ -718,18 +760,25 @@ async def update_merge_request(
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
-    except httpx.HTTPStatusError as e:
+    except APIError as e:
         # Parse GitLab error response
         try:
-            error_json = json.loads(e.response.text)
+            error_json = json.loads(e.response_body)
             error_message = error_json.get("message", "Unknown error")
         except (json.JSONDecodeError, AttributeError):
-            error_message = e.response.text if e.response.text else str(e)
+            error_message = str(e)
 
         return {
             "success": False,
             "error": f"Failed to update MR !{resolved_mr_iid} in project {project_id}: {error_message}",
-            "status_code": e.response.status_code,
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "mr_iid": resolved_mr_iid,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to update MR !{resolved_mr_iid} in project {project_id}: {e}",
             "project_id": project_id,
             "mr_iid": resolved_mr_iid,
         }
@@ -843,18 +892,26 @@ async def create_merge_request(
             },
             "project_id": project_id,
         }
-    except httpx.HTTPStatusError as e:
+    except APIError as e:
         # Parse GitLab error response
         try:
-            error_json = json.loads(e.response.text)
+            error_json = json.loads(e.response_body)
             error_message = error_json.get("message", "Unknown error")
         except (json.JSONDecodeError, AttributeError):
-            error_message = e.response.text if e.response.text else str(e)
+            error_message = str(e)
 
         return {
             "success": False,
             "error": f"Failed to create MR in project {project_id}: {error_message}",
-            "status_code": e.response.status_code,
+            "status_code": e.status_code,
+            "project_id": project_id,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+        }
+    except GitLabError as e:
+        return {
+            "success": False,
+            "error": f"Failed to create MR in project {project_id}: {e}",
             "project_id": project_id,
             "source_branch": source_branch,
             "target_branch": target_branch,
