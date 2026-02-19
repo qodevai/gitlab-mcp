@@ -1,10 +1,10 @@
 """Decorators for gitlab-mcp tools."""
 
 import functools
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from fastmcp import Context
-
 from gitlab_client import APIError, GitLabError
 
 # Maximum length for error details in responses

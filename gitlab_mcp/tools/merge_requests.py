@@ -5,8 +5,8 @@ from typing import Any
 
 import httpx
 from fastmcp import Context
-
 from gitlab_client import APIError, DiffPosition, GitLabError
+
 from gitlab_mcp.models import ImageInput
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.git import get_current_branch

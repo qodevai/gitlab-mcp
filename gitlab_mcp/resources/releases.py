@@ -3,8 +3,8 @@
 from typing import Any
 
 from fastmcp import Context
+from gitlab_client import GitLabError, NotFoundError
 
-from gitlab_client import NotFoundError, GitLabError
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.errors import create_repo_not_found_error
 from gitlab_mcp.utils.resolvers import resolve_project_id

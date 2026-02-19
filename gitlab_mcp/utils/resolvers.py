@@ -5,9 +5,9 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from fastmcp import Context
+from gitlab_client import GitLabError
 from mcp import types
 
-from gitlab_client import APIError, GitLabError
 from gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
 
 if TYPE_CHECKING:

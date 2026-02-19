@@ -1,7 +1,6 @@
 """GitLab MCP Server entry point."""
 
 from fastmcp import FastMCP
-
 from gitlab_client import GitLabClient
 
 # Create FastMCP server with instructions

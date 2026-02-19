@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "gitlab-client",
+    "gitlab-client>=0.1.0",
     "fastmcp>=2.2.5",
 ]
 
@@ -28,9 +28,9 @@ dependencies = [
 gitlab-client = { path = "../../libs/gitlab" }
 
 [project.urls]
-Homepage = "https://github.com/janscheffler/gitlab-mcp"
-Repository = "https://github.com/janscheffler/gitlab-mcp"
-Issues = "https://github.com/janscheffler/gitlab-mcp/issues"
+Homepage = "https://gitlab.qodev.ai/mcps/gitlab"
+Repository = "https://gitlab.qodev.ai/mcps/gitlab"
+Issues = "https://gitlab.qodev.ai/mcps/gitlab/-/issues"
 
 [project.scripts]
 gitlab-mcp = "gitlab_mcp.server:main"
@@ -85,6 +85,10 @@ warn_unused_ignores = true
 warn_no_return = true
 check_untyped_defs = true
 strict_optional = true
+
+[[tool.mypy.overrides]]
+module = "gitlab_client.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

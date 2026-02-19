@@ -1,9 +1,9 @@
 """Image processing helpers for gitlab-mcp."""
 
-from typing import TYPE_CHECKING, Any, Callable, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 from gitlab_client import FileSource
-from gitlab_client.models import FileFromPath
 
 from gitlab_mcp.models import ImageFromPath, ImageInput
 

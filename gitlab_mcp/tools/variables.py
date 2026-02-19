@@ -3,8 +3,8 @@
 from typing import Any
 
 from fastmcp import Context
-
 from gitlab_client import APIError, GitLabError
+
 from gitlab_mcp.server import gitlab_client, mcp
 from gitlab_mcp.utils.resolvers import resolve_project_id
 

@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-
-from gitlab_client import APIError, AuthenticationError, ConfigurationError, NotFoundError
+from gitlab_client import APIError, ConfigurationError, NotFoundError
 
 
 class TestGitLabClientInit:

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **PyPI Registry Publishing** - CI/CD pipelines publish packages to GitLab Package Registry on version tags
+  - `gitlab-mcp` publishes to its own project registry using `CI_JOB_TOKEN`
+  - `gitlab-client` cross-publishes to the `mcps/gitlab` registry via deploy token
+  - End users install with: `uvx --index https://gitlab.qodev.ai/api/v4/projects/<ID>/packages/pypi/simple gitlab-mcp`
+  - CI resolves `gitlab-client` from registry using `--no-sources --extra-index-url`
+  - Publish triggered by version tags matching `v*.*.*`
+
+### Changed
+- **Project URLs** - Updated from placeholder GitHub URLs to actual GitLab instance URLs
+
 - **Issue Management Support** - Create, view, update, and comment on GitLab issues
   - `get_issues()` method in GitLabClient - List issues with filters (state, labels, assignees, milestone)
   - `get_issue()` method in GitLabClient - Get specific issue by IID
