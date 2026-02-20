@@ -5,6 +5,13 @@ All notable changes to the GitLab MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-02-20
+
+### Added
+- **CI badge** - Added CI and PyPI badges to README
+- **Quick Start section** - Added example interactions to README showing what the MCP server can do
+- **Python 3.13 classifier** - Added `Programming Language :: Python :: 3.13` to package metadata
+
 ## [0.2.0] - 2026-02-20
 
 ### Fixed

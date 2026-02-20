@@ -1,3 +1,6 @@
+[![CI](https://github.com/qodevai/gitlab-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/qodevai/gitlab-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/qodev-gitlab-mcp)](https://pypi.org/project/qodev-gitlab-mcp/)
+
 # qodev-gitlab-mcp
 
 A Model Context Protocol (MCP) server for GitLab integration. Exposes projects, merge requests, pipelines, discussions, issues, releases, and more through a standardized interface for AI assistants like Claude.
@@ -44,6 +47,15 @@ Add to your MCP configuration:
   }
 }
 ```
+
+## Quick Start
+
+Once configured, the MCP server gives your AI assistant access to GitLab. Example interactions:
+
+- "Is my MR ready to merge?" -- checks pipeline, approvals, and unresolved discussions
+- "Create a merge request for this branch" -- creates MR with auto-detected source branch
+- "Wait for the pipeline to finish" -- monitors pipeline and reports results with failed job logs
+- "Comment on MR !42 saying LGTM" -- posts a comment on the merge request
 
 ## Features
 
