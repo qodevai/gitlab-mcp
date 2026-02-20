@@ -292,35 +292,35 @@ class TestDiscussionFiltering:
 
     def test_is_user_discussion_with_user_note(self) -> None:
         """User notes should return True."""
-        from qodev_gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp.utils.discussions import is_user_discussion
 
         discussion = {"notes": [{"system": False, "body": "LGTM"}]}
         assert is_user_discussion(discussion) is True
 
     def test_is_user_discussion_with_system_note(self) -> None:
         """System notes should return False."""
-        from qodev_gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp.utils.discussions import is_user_discussion
 
         discussion = {"notes": [{"system": True, "body": "assigned to @user"}]}
         assert is_user_discussion(discussion) is False
 
     def test_is_user_discussion_with_empty_notes(self) -> None:
         """Empty discussions should return False."""
-        from qodev_gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp.utils.discussions import is_user_discussion
 
         discussion = {"notes": []}
         assert is_user_discussion(discussion) is False
 
     def test_is_user_discussion_missing_system_field(self) -> None:
         """Missing 'system' field should default to user note (backward compatible)."""
-        from qodev_gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp.utils.discussions import is_user_discussion
 
         discussion = {"notes": [{"body": "Comment"}]}
         assert is_user_discussion(discussion) is True
 
     def test_filter_actionable_discussions(self) -> None:
         """Should only include unresolved, resolvable user discussions."""
-        from qodev_gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions
 
         discussions = [
             {"notes": [{"system": False, "resolvable": True, "resolved": False, "body": "Fix this"}]},  # KEEP
@@ -337,7 +337,7 @@ class TestDiscussionFiltering:
 
     def test_filter_actionable_discussions_excludes_non_resolvable(self) -> None:
         """Should exclude discussions that are not resolvable (like individual_note comments)."""
-        from qodev_gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions
 
         discussions = [
             # individual_note comments have resolvable=false and should be excluded
@@ -354,7 +354,7 @@ class TestDiscussionFiltering:
 
     def test_filter_actionable_discussions_backward_compatible(self) -> None:
         """Should handle old API format without 'resolvable' field (defaults to false = excluded)."""
-        from qodev_gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions
 
         # Without resolvable field, defaults to False and should be excluded
         discussions = [{"notes": [{"resolved": False, "body": "Comment"}]}]
@@ -624,28 +624,28 @@ class TestFileUploadOperations:
 
 
 class TestProcessImages:
-    """Tests for process_images helper function.
+    """Tests for process_images helper function."""
 
-    Note: process_images uses the global gitlab_client, so these tests
-    mock gitlab_client after the module is imported.
-    """
-
-    def test_process_images_empty_list(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+    def test_process_images_empty_list(self) -> None:
         """Test that empty images list returns empty string."""
-        from qodev_gitlab_mcp import process_images
+        from qodev_gitlab_mcp.utils.images import process_images
 
-        result = process_images("123", [])
+        mock_client = MagicMock()
+        result = process_images(mock_client, "123", [])
         assert result == ""
 
-    def test_process_images_none(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+    def test_process_images_none(self) -> None:
         """Test that None images returns empty string."""
-        from qodev_gitlab_mcp import process_images
+        from qodev_gitlab_mcp.utils.images import process_images
 
-        result = process_images("123", None)
+        mock_client = MagicMock()
+        result = process_images(mock_client, "123", None)
         assert result == ""
 
-    def test_process_images_single_image(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+    def test_process_images_single_image(self, tmp_path) -> None:
         """Test processing a single image."""
+        from qodev_gitlab_mcp.utils.images import process_images
+
         test_file = tmp_path / "image.png"
         test_file.write_bytes(b"image data")
 
@@ -655,17 +655,17 @@ class TestProcessImages:
             "markdown": "![image](/uploads/abc/image.png)",
         }
 
-        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
-            mock_client.upload_file.return_value = upload_response
+        mock_client = MagicMock()
+        mock_client.upload_file.return_value = upload_response
 
-            from qodev_gitlab_mcp import process_images
+        result = process_images(mock_client, "123", [{"path": str(test_file)}])
 
-            result = process_images("123", [{"path": str(test_file)}])
+        assert result == "\n\n![image](/uploads/abc/image.png)"
 
-            assert result == "\n\n![image](/uploads/abc/image.png)"
-
-    def test_process_images_with_custom_alt(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+    def test_process_images_with_custom_alt(self, tmp_path) -> None:
         """Test that custom alt text is used."""
+        from qodev_gitlab_mcp.utils.images import process_images
+
         test_file = tmp_path / "screenshot.png"
         test_file.write_bytes(b"image data")
 
@@ -674,17 +674,17 @@ class TestProcessImages:
             "url": "/uploads/abc/screenshot.png",
         }
 
-        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
-            mock_client.upload_file.return_value = upload_response
+        mock_client = MagicMock()
+        mock_client.upload_file.return_value = upload_response
 
-            from qodev_gitlab_mcp import process_images
+        result = process_images(mock_client, "123", [{"path": str(test_file), "alt": "My custom alt text"}])
 
-            result = process_images("123", [{"path": str(test_file), "alt": "My custom alt text"}])
+        assert "![My custom alt text]" in result
 
-            assert "![My custom alt text]" in result
-
-    def test_process_images_multiple(self, mock_env_vars: dict, mock_httpx_client: MagicMock, tmp_path) -> None:
+    def test_process_images_multiple(self, tmp_path) -> None:
         """Test processing multiple images."""
+        from qodev_gitlab_mcp.utils.images import process_images
+
         test_file1 = tmp_path / "img1.png"
         test_file2 = tmp_path / "img2.png"
         test_file1.write_bytes(b"image1")
@@ -695,32 +695,30 @@ class TestProcessImages:
             {"alt": "img2", "url": "/uploads/b/img2.png"},
         ]
 
-        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
-            mock_client.upload_file.side_effect = upload_responses
+        mock_client = MagicMock()
+        mock_client.upload_file.side_effect = upload_responses
 
-            from qodev_gitlab_mcp import process_images
+        result = process_images(mock_client, "123", [{"path": str(test_file1)}, {"path": str(test_file2)}])
 
-            result = process_images("123", [{"path": str(test_file1)}, {"path": str(test_file2)}])
+        assert "![img1]" in result
+        assert "![img2]" in result
+        assert result.startswith("\n\n")
 
-            assert "![img1]" in result
-            assert "![img2]" in result
-            assert result.startswith("\n\n")
-
-    def test_process_images_from_base64(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
+    def test_process_images_from_base64(self) -> None:
         """Test processing image from base64."""
         import base64
+
+        from qodev_gitlab_mcp.utils.images import process_images
 
         upload_response = {
             "alt": "encoded",
             "url": "/uploads/xyz/encoded.png",
         }
 
-        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
-            mock_client.upload_file.return_value = upload_response
+        mock_client = MagicMock()
+        mock_client.upload_file.return_value = upload_response
 
-            from qodev_gitlab_mcp import process_images
+        b64_data = base64.b64encode(b"test").decode()
+        result = process_images(mock_client, "123", [{"base64": b64_data, "filename": "encoded.png"}])
 
-            b64_data = base64.b64encode(b"test").decode()
-            result = process_images("123", [{"base64": b64_data, "filename": "encoded.png"}])
-
-            assert "![encoded]" in result
+        assert "![encoded]" in result
