@@ -1,7 +1,7 @@
 """GitLab MCP Server entry point."""
 
 from fastmcp import FastMCP
-from gitlab_client import GitLabClient
+from qodev_gitlab_api import GitLabClient
 
 # Create FastMCP server with instructions
 mcp = FastMCP(
@@ -185,7 +185,7 @@ gitlab_client = GitLabClient(validate=False)
 
 # Import resources and tools for side-effect registration
 # These modules use @mcp.resource() and @mcp.tool() decorators
-from gitlab_mcp import resources, tools  # noqa: F401, E402
+from qodev_gitlab_mcp import resources, tools  # noqa: F401, E402
 
 
 def main() -> None:

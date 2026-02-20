@@ -1,14 +1,14 @@
-"""Merge request resources for gitlab-mcp."""
+"""Merge request resources for qodev-gitlab-mcp."""
 
 import logging
 from typing import Any
 
 from fastmcp import Context
 
-from gitlab_mcp.server import gitlab_client, mcp
-from gitlab_mcp.utils.discussions import filter_actionable_discussions
-from gitlab_mcp.utils.errors import create_repo_not_found_error
-from gitlab_mcp.utils.resolvers import resolve_mr_iid, resolve_project_id
+from qodev_gitlab_mcp.server import gitlab_client, mcp
+from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions
+from qodev_gitlab_mcp.utils.errors import create_repo_not_found_error
+from qodev_gitlab_mcp.utils.resolvers import resolve_mr_iid, resolve_project_id
 
 logger = logging.getLogger(__name__)
 

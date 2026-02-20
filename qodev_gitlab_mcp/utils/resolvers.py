@@ -1,17 +1,17 @@
-"""Project and MR resolution helpers for gitlab-mcp."""
+"""Project and MR resolution helpers for qodev-gitlab-mcp."""
 
 import logging
 import os
 from typing import TYPE_CHECKING, Any
 
 from fastmcp import Context
-from gitlab_client import GitLabError
 from mcp import types
+from qodev_gitlab_api import GitLabError
 
-from gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
+from qodev_gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
 
 if TYPE_CHECKING:
-    from gitlab_client import GitLabClient
+    from qodev_gitlab_api import GitLabClient
 
 logger = logging.getLogger(__name__)
 

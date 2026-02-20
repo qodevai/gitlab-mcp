@@ -16,7 +16,7 @@ class TestGitLabClientIntegration:
 
     def test_client_initialization(self, skip_without_token: None, gitlab_token: str, gitlab_url: str) -> None:
         """Test that client can connect to GitLab."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         # Should not raise
         client = GitLabClient(token=gitlab_token, base_url=gitlab_url, validate=True)
@@ -24,7 +24,7 @@ class TestGitLabClientIntegration:
 
     def test_get_version(self, skip_without_token: None, gitlab_token: str, gitlab_url: str) -> None:
         """Test getting GitLab version."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(token=gitlab_token, base_url=gitlab_url, validate=False)
         version_info = client.get("/version")
@@ -34,7 +34,7 @@ class TestGitLabClientIntegration:
 
     def test_get_projects(self, skip_without_token: None, gitlab_token: str, gitlab_url: str) -> None:
         """Test listing projects."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(token=gitlab_token, base_url=gitlab_url, validate=False)
         projects = client.get_projects(membership=True)
@@ -55,7 +55,7 @@ class TestCurrentProjectDetection:
 
     def test_get_current_branch_in_repo(self) -> None:
         """Test that current branch detection works in a git repository."""
-        from gitlab_mcp import get_current_branch
+        from qodev_gitlab_mcp import get_current_branch
 
         # Get current working directory (should be the gitlab-mcp repo)
         cwd = os.getcwd()
@@ -66,7 +66,7 @@ class TestCurrentProjectDetection:
 
     def test_parse_gitlab_remote_in_repo(self) -> None:
         """Test that remote parsing works in a git repository."""
-        from gitlab_mcp import parse_gitlab_remote
+        from qodev_gitlab_mcp import parse_gitlab_remote
 
         # Get current working directory (should be the gitlab-mcp repo)
         cwd = os.getcwd()
@@ -82,7 +82,7 @@ class TestGitLabHelpers:
 
     def test_get_current_branch_not_a_repo(self) -> None:
         """Test getting branch in non-git directory."""
-        from gitlab_mcp import get_current_branch
+        from qodev_gitlab_mcp import get_current_branch
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = get_current_branch(tmpdir)
@@ -90,7 +90,7 @@ class TestGitLabHelpers:
 
     def test_parse_gitlab_remote_not_a_repo(self) -> None:
         """Test parsing remote in non-git directory."""
-        from gitlab_mcp import parse_gitlab_remote
+        from qodev_gitlab_mcp import parse_gitlab_remote
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = parse_gitlab_remote(tmpdir, "https://gitlab.com")
@@ -98,7 +98,7 @@ class TestGitLabHelpers:
 
     def test_gitlab_client_encode_project_id(self) -> None:
         """Test URL encoding of project IDs."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         # Simple numeric ID
         assert GitLabClient._encode_project_id("123") == "123"

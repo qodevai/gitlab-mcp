@@ -1,4 +1,4 @@
-"""Shared test fixtures for gitlab-mcp tests."""
+"""Shared test fixtures for qodev-gitlab-mcp tests."""
 
 import os
 from collections.abc import Generator
@@ -24,7 +24,7 @@ def mock_httpx_client() -> Generator[MagicMock, None, None]:
 
     Patches at the gitlab_client._base module level where httpx.Client is actually called.
     """
-    with patch("gitlab_client._base.httpx.Client") as mock_client_class:
+    with patch("qodev_gitlab_api._base.httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         yield mock_client

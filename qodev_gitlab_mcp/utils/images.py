@@ -1,14 +1,14 @@
-"""Image processing helpers for gitlab-mcp."""
+"""Image processing helpers for qodev-gitlab-mcp."""
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
-from gitlab_client import FileSource
+from qodev_gitlab_api import FileSource
 
-from gitlab_mcp.models import ImageFromPath, ImageInput
+from qodev_gitlab_mcp.models import ImageFromPath, ImageInput
 
 if TYPE_CHECKING:
-    from gitlab_client import GitLabClient
+    from qodev_gitlab_api import GitLabClient
 
 # Separator between content and appended images
 IMAGE_MARKDOWN_SEPARATOR = "\n\n"

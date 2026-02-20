@@ -1,17 +1,17 @@
-"""Merge request tools for gitlab-mcp."""
+"""Merge request tools for qodev-gitlab-mcp."""
 
 import json
 from typing import Any
 
 import httpx
 from fastmcp import Context
-from gitlab_client import APIError, DiffPosition, GitLabError
+from qodev_gitlab_api import APIError, DiffPosition, GitLabError
 
-from gitlab_mcp.models import ImageInput
-from gitlab_mcp.server import gitlab_client, mcp
-from gitlab_mcp.utils.git import get_current_branch
-from gitlab_mcp.utils.images import prepare_description_with_images, process_images
-from gitlab_mcp.utils.resolvers import detect_current_repo, resolve_mr_iid, resolve_project_id
+from qodev_gitlab_mcp.models import ImageInput
+from qodev_gitlab_mcp.server import gitlab_client, mcp
+from qodev_gitlab_mcp.utils.git import get_current_branch
+from qodev_gitlab_mcp.utils.images import prepare_description_with_images, process_images
+from qodev_gitlab_mcp.utils.resolvers import detect_current_repo, resolve_mr_iid, resolve_project_id
 
 
 def resolve_line_from_content(file_content: str, target_content: str) -> tuple[int | None, int]:

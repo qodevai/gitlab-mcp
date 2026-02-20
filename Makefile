@@ -14,11 +14,11 @@ install-hooks:
 
 # Run all tests
 test:
-	uv run pytest --cov=gitlab_mcp --cov-report=term --cov-report=html
+	uv run pytest --cov=qodev_gitlab_mcp --cov-report=term --cov-report=html
 
 # Run unit tests only
 test-unit:
-	uv run pytest tests/unit --cov=gitlab_mcp --cov-report=term
+	uv run pytest tests/unit --cov=qodev_gitlab_mcp --cov-report=term
 
 # Run integration tests only
 test-integration:
@@ -45,7 +45,7 @@ format-check:
 
 # Type check
 typecheck:
-	uv run mypy gitlab_mcp.py
+	uv run mypy qodev_gitlab_mcp/
 
 # Spell check
 typos:

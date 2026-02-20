@@ -9,7 +9,7 @@ This package provides a FastMCP server for GitLab operations including:
 - File uploads
 """
 
-from gitlab_client import (
+from qodev_gitlab_api import (
     APIError,
     AuthenticationError,
     ConfigurationError,
@@ -22,15 +22,15 @@ from gitlab_client import (
     NotFoundError,
 )
 
-from gitlab_mcp.models import (
+from qodev_gitlab_mcp.models import (
     ImageFromBase64,
     ImageFromPath,
     ImageInput,
 )
-from gitlab_mcp.server import gitlab_client, main, mcp
-from gitlab_mcp.utils.discussions import filter_actionable_discussions, is_user_discussion
-from gitlab_mcp.utils.git import get_current_branch, parse_gitlab_remote
-from gitlab_mcp.utils.images import process_images as _process_images_internal
+from qodev_gitlab_mcp.server import gitlab_client, main, mcp
+from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions, is_user_discussion
+from qodev_gitlab_mcp.utils.git import get_current_branch, parse_gitlab_remote
+from qodev_gitlab_mcp.utils.images import process_images as _process_images_internal
 
 
 def process_images(project_id: str, images: list[ImageInput] | None) -> str:

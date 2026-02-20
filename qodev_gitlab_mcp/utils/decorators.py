@@ -1,11 +1,11 @@
-"""Decorators for gitlab-mcp tools."""
+"""Decorators for qodev-gitlab-mcp tools."""
 
 import functools
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 from fastmcp import Context
-from gitlab_client import APIError, GitLabError
+from qodev_gitlab_api import APIError, GitLabError
 
 # Maximum length for error details in responses
 MAX_ERROR_DETAIL_LENGTH = 500

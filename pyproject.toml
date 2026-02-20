@@ -1,6 +1,6 @@
 [project]
-name = "gitlab-mcp"
-version = "1.0.0"
+name = "qodev-gitlab-mcp"
+version = "0.1.0"
 description = "Production-ready GitLab MCP server exposing projects, merge requests, pipelines, and discussions"
 readme = "README.md"
 license = {text = "MIT"}
@@ -20,20 +20,20 @@ classifiers = [
 ]
 
 dependencies = [
-    "gitlab-client>=0.1.0",
+    "qodev-gitlab-api>=0.1.0",
     "fastmcp>=2.2.5",
 ]
 
 [tool.uv.sources]
-gitlab-client = { path = "../../libs/gitlab" }
+qodev-gitlab-api = { path = "../../libs/gitlab" }
 
 [project.urls]
-Homepage = "https://gitlab.qodev.ai/mcps/gitlab"
-Repository = "https://gitlab.qodev.ai/mcps/gitlab"
-Issues = "https://gitlab.qodev.ai/mcps/gitlab/-/issues"
+Homepage = "https://github.com/qodevai/gitlab-mcp"
+Repository = "https://github.com/qodevai/gitlab-mcp"
+Issues = "https://github.com/qodevai/gitlab-mcp/issues"
 
 [project.scripts]
-gitlab-mcp = "gitlab_mcp.server:main"
+qodev-gitlab-mcp = "qodev_gitlab_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -87,7 +87,7 @@ check_untyped_defs = true
 strict_optional = true
 
 [[tool.mypy.overrides]]
-module = "gitlab_client.*"
+module = "qodev_gitlab_api.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -98,7 +98,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gitlab_mcp"]
+source = ["qodev_gitlab_mcp"]
 omit = ["tests/*"]
 
 [tool.coverage.report]

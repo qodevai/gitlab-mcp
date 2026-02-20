@@ -1,15 +1,15 @@
-"""Utility functions for gitlab-mcp."""
+"""Utility functions for qodev-gitlab-mcp."""
 
-from gitlab_mcp.utils.decorators import (
+from qodev_gitlab_mcp.utils.decorators import (
     MAX_ERROR_DETAIL_LENGTH,
     handle_gitlab_errors,
     resolve_project_or_error,
 )
-from gitlab_mcp.utils.discussions import filter_actionable_discussions, is_user_discussion
-from gitlab_mcp.utils.errors import create_branch_error, create_repo_not_found_error
-from gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
-from gitlab_mcp.utils.images import process_images
-from gitlab_mcp.utils.resolvers import (
+from qodev_gitlab_mcp.utils.discussions import filter_actionable_discussions, is_user_discussion
+from qodev_gitlab_mcp.utils.errors import create_branch_error, create_repo_not_found_error
+from qodev_gitlab_mcp.utils.git import find_git_root, get_current_branch, parse_gitlab_remote
+from qodev_gitlab_mcp.utils.images import process_images
+from qodev_gitlab_mcp.utils.resolvers import (
     detect_current_repo,
     find_mr_for_branch,
     get_current_branch_mr,

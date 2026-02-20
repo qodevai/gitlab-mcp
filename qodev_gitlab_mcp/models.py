@@ -1,4 +1,4 @@
-"""MCP-specific type definitions for gitlab-mcp.
+"""MCP-specific type definitions for qodev-gitlab-mcp.
 
 Note: Common types (FileSource, DiffPosition, etc.) are in the gitlab-client library.
 This module contains only MCP-specific types like ImageInput.

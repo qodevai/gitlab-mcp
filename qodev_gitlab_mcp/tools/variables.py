@@ -1,12 +1,12 @@
-"""CI/CD variable tools for gitlab-mcp."""
+"""CI/CD variable tools for qodev-gitlab-mcp."""
 
 from typing import Any
 
 from fastmcp import Context
-from gitlab_client import APIError, GitLabError
+from qodev_gitlab_api import APIError, GitLabError
 
-from gitlab_mcp.server import gitlab_client, mcp
-from gitlab_mcp.utils.resolvers import resolve_project_id
+from qodev_gitlab_mcp.server import gitlab_client, mcp
+from qodev_gitlab_mcp.utils.resolvers import resolve_project_id
 
 
 @mcp.tool()

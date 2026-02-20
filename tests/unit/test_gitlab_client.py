@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from gitlab_client import APIError, ConfigurationError, NotFoundError
+from qodev_gitlab_api import APIError, ConfigurationError, NotFoundError
 
 
 class TestGitLabClientInit:
@@ -12,7 +12,7 @@ class TestGitLabClientInit:
 
     def test_init_requires_token(self) -> None:
         """Test that GitLabClient requires a token."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         # Pass no token and ensure GITLAB_TOKEN env var is cleared
         with (
@@ -23,8 +23,8 @@ class TestGitLabClientInit:
 
     def test_init_with_token_env_var(self, mock_env_vars: dict) -> None:
         """Test initialization with token from environment."""
-        with patch("gitlab_client._base.httpx.Client"):
-            from gitlab_mcp import GitLabClient
+        with patch("qodev_gitlab_api._base.httpx.Client"):
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
             assert client.token == mock_env_vars["GITLAB_TOKEN"]
@@ -32,8 +32,8 @@ class TestGitLabClientInit:
 
     def test_init_with_explicit_token(self, mock_env_vars: dict) -> None:
         """Test initialization with explicitly passed token."""
-        with patch("gitlab_client._base.httpx.Client"):
-            from gitlab_mcp import GitLabClient
+        with patch("qodev_gitlab_api._base.httpx.Client"):
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(token="explicit-token", validate=False)
             assert client.token == "explicit-token"
@@ -41,7 +41,7 @@ class TestGitLabClientInit:
     def test_init_invalid_url(self) -> None:
         """Test that invalid URL raises error."""
         with patch.dict("os.environ", {"GITLAB_TOKEN": "test", "GITLAB_URL": "invalid-url"}, clear=True):
-            from gitlab_mcp import GitLabClient
+            from qodev_gitlab_mcp import GitLabClient
 
             with pytest.raises(ConfigurationError, match="must start with http"):
                 GitLabClient(validate=False)
@@ -50,9 +50,9 @@ class TestGitLabClientInit:
         """Test that trailing slash is stripped from base URL."""
         with (
             patch.dict("os.environ", {"GITLAB_TOKEN": "test", "GITLAB_URL": "https://gitlab.com/"}, clear=True),
-            patch("gitlab_client._base.httpx.Client"),
+            patch("qodev_gitlab_api._base.httpx.Client"),
         ):
-            from gitlab_mcp import GitLabClient
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
             assert client.base_url == "https://gitlab.com"
@@ -63,21 +63,21 @@ class TestGitLabClientEncoding:
 
     def test_encode_project_id_simple(self) -> None:
         """Test encoding simple project ID."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         encoded = GitLabClient._encode_project_id("123")
         assert encoded == "123"
 
     def test_encode_project_id_with_slash(self) -> None:
         """Test encoding project path with slash."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         encoded = GitLabClient._encode_project_id("group/project")
         assert encoded == "group%2Fproject"
 
     def test_encode_project_id_nested(self) -> None:
         """Test encoding deeply nested project path."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         encoded = GitLabClient._encode_project_id("org/group/subgroup/project")
         assert encoded == "org%2Fgroup%2Fsubgroup%2Fproject"
@@ -93,7 +93,7 @@ class TestGitLabClientRequests:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.get("/version")
@@ -108,7 +108,7 @@ class TestGitLabClientRequests:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         client.get("/projects", params={"owned": True})
@@ -125,7 +125,7 @@ class TestGitLabClientRequests:
         )
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
 
@@ -142,7 +142,7 @@ class TestGitLabClientRequests:
         )
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
 
@@ -161,7 +161,7 @@ class TestGitLabClientPagination:
         mock_response.headers = {}  # No x-next-page header
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         results = client.get_paginated("/projects")
@@ -185,7 +185,7 @@ class TestGitLabClientPagination:
 
         mock_httpx_client.get.side_effect = [mock_response1, mock_response2]
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         results = client.get_paginated("/projects")
@@ -206,7 +206,7 @@ class TestGitLabClientPagination:
 
         mock_httpx_client.get.side_effect = [create_response() for _ in range(10)]
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         results = client.get_paginated("/projects", max_pages=3)
@@ -222,7 +222,7 @@ class TestGitLabClientPagination:
         mock_response.headers = {}
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         results = client.get_paginated("/projects")
@@ -240,7 +240,7 @@ class TestGitLabClientMethods:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.get_project("group/test-project")
@@ -259,7 +259,7 @@ class TestGitLabClientMethods:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.get_merge_request("123", 1)
@@ -275,7 +275,7 @@ class TestGitLabClientMethods:
         mock_response.headers = {}
         mock_httpx_client.get.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.get_pipelines("123")
@@ -292,35 +292,35 @@ class TestDiscussionFiltering:
 
     def test_is_user_discussion_with_user_note(self) -> None:
         """User notes should return True."""
-        from gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp import is_user_discussion
 
         discussion = {"notes": [{"system": False, "body": "LGTM"}]}
         assert is_user_discussion(discussion) is True
 
     def test_is_user_discussion_with_system_note(self) -> None:
         """System notes should return False."""
-        from gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp import is_user_discussion
 
         discussion = {"notes": [{"system": True, "body": "assigned to @user"}]}
         assert is_user_discussion(discussion) is False
 
     def test_is_user_discussion_with_empty_notes(self) -> None:
         """Empty discussions should return False."""
-        from gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp import is_user_discussion
 
         discussion = {"notes": []}
         assert is_user_discussion(discussion) is False
 
     def test_is_user_discussion_missing_system_field(self) -> None:
         """Missing 'system' field should default to user note (backward compatible)."""
-        from gitlab_mcp import is_user_discussion
+        from qodev_gitlab_mcp import is_user_discussion
 
         discussion = {"notes": [{"body": "Comment"}]}
         assert is_user_discussion(discussion) is True
 
     def test_filter_actionable_discussions(self) -> None:
         """Should only include unresolved, resolvable user discussions."""
-        from gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp import filter_actionable_discussions
 
         discussions = [
             {"notes": [{"system": False, "resolvable": True, "resolved": False, "body": "Fix this"}]},  # KEEP
@@ -337,7 +337,7 @@ class TestDiscussionFiltering:
 
     def test_filter_actionable_discussions_excludes_non_resolvable(self) -> None:
         """Should exclude discussions that are not resolvable (like individual_note comments)."""
-        from gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp import filter_actionable_discussions
 
         discussions = [
             # individual_note comments have resolvable=false and should be excluded
@@ -354,7 +354,7 @@ class TestDiscussionFiltering:
 
     def test_filter_actionable_discussions_backward_compatible(self) -> None:
         """Should handle old API format without 'resolvable' field (defaults to false = excluded)."""
-        from gitlab_mcp import filter_actionable_discussions
+        from qodev_gitlab_mcp import filter_actionable_discussions
 
         # Without resolvable field, defaults to False and should be excluded
         discussions = [{"notes": [{"resolved": False, "body": "Comment"}]}]
@@ -375,7 +375,7 @@ class TestMergeRequestOperations:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.put.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.close_mr("123", 1)
@@ -395,7 +395,7 @@ class TestMergeRequestOperations:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.create_mr_note("123", 1, "LGTM!")
@@ -418,7 +418,7 @@ class TestMergeRequestOperations:
         )
         mock_httpx_client.put.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         with pytest.raises(NotFoundError):
@@ -434,7 +434,7 @@ class TestMergeRequestOperations:
         )
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         with pytest.raises(APIError):
@@ -452,7 +452,7 @@ class TestJobOperations:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         result = client.retry_job("123", 1001)
@@ -474,7 +474,7 @@ class TestJobOperations:
         )
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         with pytest.raises(APIError):
@@ -490,7 +490,7 @@ class TestJobOperations:
         )
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         with pytest.raises(NotFoundError):
@@ -506,7 +506,7 @@ class TestJobOperations:
         mock_response.raise_for_status = MagicMock()
         mock_httpx_client.post.return_value = mock_response
 
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
         client.retry_job("group/project", 1001)
@@ -537,13 +537,13 @@ class TestFileUploadOperations:
             "markdown": "![test_image](/uploads/abc123/test_image.png)",
         }
 
-        with patch("gitlab_client._files.httpx.post") as mock_post:
+        with patch("qodev_gitlab_api._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.json.return_value = upload_response
             mock_response.raise_for_status = MagicMock()
             mock_post.return_value = mock_response
 
-            from gitlab_mcp import GitLabClient
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
             result = client.upload_file("123", {"path": str(test_file)})
@@ -569,13 +569,13 @@ class TestFileUploadOperations:
             "markdown": "![screenshot](/uploads/def456/screenshot.png)",
         }
 
-        with patch("gitlab_client._files.httpx.post") as mock_post:
+        with patch("qodev_gitlab_api._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.json.return_value = upload_response
             mock_response.raise_for_status = MagicMock()
             mock_post.return_value = mock_response
 
-            from gitlab_mcp import GitLabClient
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
             b64_data = base64.b64encode(b"test data").decode()
@@ -585,7 +585,7 @@ class TestFileUploadOperations:
 
     def test_upload_file_invalid_base64(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
         """Test that invalid base64 data raises ValueError."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
 
@@ -594,7 +594,7 @@ class TestFileUploadOperations:
 
     def test_upload_file_file_not_found(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
         """Test that non-existent file path raises FileNotFoundError."""
-        from gitlab_mcp import GitLabClient
+        from qodev_gitlab_mcp import GitLabClient
 
         client = GitLabClient(validate=False)
 
@@ -606,7 +606,7 @@ class TestFileUploadOperations:
         test_file = tmp_path / "test.png"
         test_file.write_bytes(b"content")
 
-        with patch("gitlab_client._files.httpx.post") as mock_post:
+        with patch("qodev_gitlab_api._files.httpx.post") as mock_post:
             mock_response = MagicMock()
             mock_response.status_code = 413
             mock_response.text = "File too large"
@@ -615,7 +615,7 @@ class TestFileUploadOperations:
             )
             mock_post.return_value = mock_response
 
-            from gitlab_mcp import GitLabClient
+            from qodev_gitlab_mcp import GitLabClient
 
             client = GitLabClient(validate=False)
 
@@ -632,14 +632,14 @@ class TestProcessImages:
 
     def test_process_images_empty_list(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
         """Test that empty images list returns empty string."""
-        from gitlab_mcp import process_images
+        from qodev_gitlab_mcp import process_images
 
         result = process_images("123", [])
         assert result == ""
 
     def test_process_images_none(self, mock_env_vars: dict, mock_httpx_client: MagicMock) -> None:
         """Test that None images returns empty string."""
-        from gitlab_mcp import process_images
+        from qodev_gitlab_mcp import process_images
 
         result = process_images("123", None)
         assert result == ""
@@ -655,10 +655,10 @@ class TestProcessImages:
             "markdown": "![image](/uploads/abc/image.png)",
         }
 
-        with patch("gitlab_mcp.gitlab_client") as mock_client:
+        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
             mock_client.upload_file.return_value = upload_response
 
-            from gitlab_mcp import process_images
+            from qodev_gitlab_mcp import process_images
 
             result = process_images("123", [{"path": str(test_file)}])
 
@@ -674,10 +674,10 @@ class TestProcessImages:
             "url": "/uploads/abc/screenshot.png",
         }
 
-        with patch("gitlab_mcp.gitlab_client") as mock_client:
+        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
             mock_client.upload_file.return_value = upload_response
 
-            from gitlab_mcp import process_images
+            from qodev_gitlab_mcp import process_images
 
             result = process_images("123", [{"path": str(test_file), "alt": "My custom alt text"}])
 
@@ -695,10 +695,10 @@ class TestProcessImages:
             {"alt": "img2", "url": "/uploads/b/img2.png"},
         ]
 
-        with patch("gitlab_mcp.gitlab_client") as mock_client:
+        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
             mock_client.upload_file.side_effect = upload_responses
 
-            from gitlab_mcp import process_images
+            from qodev_gitlab_mcp import process_images
 
             result = process_images("123", [{"path": str(test_file1)}, {"path": str(test_file2)}])
 
@@ -715,10 +715,10 @@ class TestProcessImages:
             "url": "/uploads/xyz/encoded.png",
         }
 
-        with patch("gitlab_mcp.gitlab_client") as mock_client:
+        with patch("qodev_gitlab_mcp.gitlab_client") as mock_client:
             mock_client.upload_file.return_value = upload_response
 
-            from gitlab_mcp import process_images
+            from qodev_gitlab_mcp import process_images
 
             b64_data = base64.b64encode(b"test").decode()
             result = process_images("123", [{"base64": b64_data, "filename": "encoded.png"}])

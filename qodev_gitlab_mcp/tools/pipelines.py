@@ -1,4 +1,4 @@
-"""Pipeline and job tools for gitlab-mcp."""
+"""Pipeline and job tools for qodev-gitlab-mcp."""
 
 import os
 import tempfile
@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import Context
-from gitlab_client import APIError, GitLabError, NotFoundError
+from qodev_gitlab_api import APIError, GitLabError, NotFoundError
 
-from gitlab_mcp.server import gitlab_client, mcp
-from gitlab_mcp.utils.resolvers import resolve_mr_iid, resolve_project_id
+from qodev_gitlab_mcp.server import gitlab_client, mcp
+from qodev_gitlab_mcp.utils.resolvers import resolve_mr_iid, resolve_project_id
 
 
 @mcp.tool()

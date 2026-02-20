@@ -1,4 +1,4 @@
-"""Pipeline and job resources for gitlab-mcp."""
+"""Pipeline and job resources for qodev-gitlab-mcp."""
 
 import base64
 import json
@@ -7,11 +7,11 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastmcp import Context
-from gitlab_client import APIError, GitLabError, NotFoundError
+from qodev_gitlab_api import APIError, GitLabError, NotFoundError
 
-from gitlab_mcp.server import gitlab_client, mcp
-from gitlab_mcp.utils.errors import create_repo_not_found_error
-from gitlab_mcp.utils.resolvers import resolve_project_id
+from qodev_gitlab_mcp.server import gitlab_client, mcp
+from qodev_gitlab_mcp.utils.errors import create_repo_not_found_error
+from qodev_gitlab_mcp.utils.resolvers import resolve_project_id
 
 logger = logging.getLogger(__name__)
 

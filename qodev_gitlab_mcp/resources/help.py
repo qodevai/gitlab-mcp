@@ -1,8 +1,8 @@
-"""Help resource for gitlab-mcp."""
+"""Help resource for qodev-gitlab-mcp."""
 
 from typing import Any
 
-from gitlab_mcp.server import mcp
+from qodev_gitlab_mcp.server import mcp
 
 
 @mcp.resource(
