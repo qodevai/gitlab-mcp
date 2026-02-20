@@ -1,6 +1,6 @@
 [project]
 name = "qodev-gitlab-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "Production-ready GitLab MCP server exposing projects, merge requests, pipelines, and discussions"
 readme = "README.md"
 license = {text = "MIT"}

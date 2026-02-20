@@ -179,9 +179,9 @@ For help, use gitlab://help/ to see all available resources.
 """,
 )
 
-# Create global client instance (validate=False to allow import without network access)
-# Validation happens lazily when making actual requests
-gitlab_client = GitLabClient(validate=False)
+# Create global client instance (lazy=True to allow import without requiring GITLAB_TOKEN)
+# Configuration and connectivity are validated on first actual API request
+gitlab_client = GitLabClient(lazy=True)
 
 # Import resources and tools for side-effect registration
 # These modules use @mcp.resource() and @mcp.tool() decorators
