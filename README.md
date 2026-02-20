@@ -58,7 +58,8 @@ Add to your MCP configuration:
 ## Usage
 
 ```python
-from qodev_gitlab_mcp import GitLabClient, mcp
+from qodev_gitlab_api import GitLabClient
+from qodev_gitlab_mcp.server import mcp
 ```
 
 ## License
