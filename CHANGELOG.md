@@ -5,7 +5,7 @@ All notable changes to the GitLab MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.3] - 2026-02-20
+## [0.2.0] - 2026-02-20
 
 ### Fixed
 - **Import side effects** - Removed eager server imports from `__init__.py` that required `GITLAB_TOKEN` at import time, even when importing from submodules
@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **CI publish gating** - Publish workflow now requires lint, typecheck, and test to pass before publishing to PyPI
+- **Improved documentation and packaging** - Rewrote README with full tools/resources reference, added `py.typed` marker for PEP 561 type stub support, updated LICENSE copyright
 
 ## [0.1.0] - 2026-02-20
 
